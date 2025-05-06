@@ -45,17 +45,49 @@ TEMPLATE_ROIS = {
 
 }
 # --- 设备序列号管理 ---
-def set_device_serial(serial):
-    """设置要使用的设备序列号"""
+def set_device_serial(serial=None):
+    """设置要使用的设备序列号，如果不传则列出可用设备供选择"""
     global manual_serial, device_serial
-    manual_serial = serial
-    print(f"手动设置设备序列号为: {manual_serial}")
-    # 尝试重新获取并验证
+
+    if not serial:
+        # 没有指定，列出设备供选择
+        devices = list_connected_devices()
+        if not devices:
+            print("未发现任何连接的设备，请确认ADB连接正常。")
+            manual_serial = None
+            device_serial = None
+            return
+
+        print("检测到以下设备：")
+        for idx, dev in enumerate(devices):
+            print(f"{idx+1}: {dev}")
+
+        # 提示用户选择
+        try:
+            selected = int(input(f"请输入设备序号 (1-{len(devices)})：")) - 1
+            if 0 <= selected < len(devices):
+                manual_serial = devices[selected]
+            else:
+                print("输入的序号无效，取消设置。")
+                manual_serial = None
+                device_serial = None
+                return
+        except ValueError:
+            print("输入无效，取消设置。")
+            manual_serial = None
+            device_serial = None
+            return
+    else:
+        manual_serial = serial
+        print(f"手动设置设备序列号为: {manual_serial}")
+
+    # 尝试重新连接并验证
     device_serial = get_device_serial()
     if device_serial != manual_serial:
         print(f"警告：尝试设置 {manual_serial}，但实际连接/检测到的设备是 {device_serial}")
     else:
         print(f"设备 {device_serial} 已确认。")
+
 
 
 def is_adb_device_connected():
@@ -150,6 +182,24 @@ def get_device_serial():
             return None
     return None
 
+# --- 列出所有连接的设备 ---
+def list_connected_devices():
+    """返回一个列表，列出所有通过adb连接的设备"""
+    try:
+        result = subprocess.run(
+            f'"{adb_path}" devices', shell=True, capture_output=True, text=True, timeout=5
+        )
+        devices = []
+        lines = result.stdout.strip().split('\n')
+        if len(lines) > 1:
+            for line in lines[1:]:
+                if '\tdevice' in line:
+                    dev = line.split('\t')[0]
+                    devices.append(dev)
+        return devices
+    except Exception as e:
+        print(f"列出设备时发生错误: {e}")
+        return []
 
 # --- 屏幕分辨率 ---
 def get_screen_dimensions():
