@@ -58,6 +58,8 @@ class ArknightsApp:
         self.current_image = None
         self.current_image_name = ""
 
+        self.connected_devices = []
+
         self.total_fill_count = 0
         self.incorrect_fill_count = 0
         self.start_time = None
@@ -78,7 +80,9 @@ class ArknightsApp:
 
         # --- 模型加载成功后，继续初始化 ---
         self.load_images()
+        self.get_connected_devices()
         self.create_widgets()  # 创建控件
+        self.refresh_device_list()
 
         # --- 添加模式变化追踪 ---
         # 在 create_widgets 之后，确保 self.game_mode 和 self.invest_checkbox 已创建
@@ -401,11 +405,18 @@ class ArknightsApp:
 
         serial_frame = tk.Frame(left_frame)
         serial_frame.pack(pady=(0, 8))
+
         tk.Label(serial_frame, text="设备号:").pack(side=tk.LEFT)
-        self.serial_entry = tk.Entry(serial_frame, textvariable=self.device_serial, width=14)
-        self.serial_entry.pack(side=tk.LEFT, padx=3)
-        self.serial_button = tk.Button(serial_frame, text="连接", command=self.update_device_serial, width=6)
-        self.serial_button.pack(side=tk.LEFT, padx=3)
+
+        # 设备选择下拉菜单
+        self.device_options = tk.StringVar()
+        self.device_dropdown = tk.OptionMenu(serial_frame, self.device_options, "")
+        self.device_dropdown.config(width=16)
+        self.device_dropdown.pack(side=tk.LEFT, padx=3)
+
+        # 刷新设备列表按钮
+        self.refresh_button = tk.Button(serial_frame, text="刷新", command=self.refresh_device_list, width=6)
+        self.refresh_button.pack(side=tk.LEFT, padx=3)
 
         # 中间（预测+标注区域）
         center_frame = tk.LabelFrame(self.button_frame, text="预测与标注", font=('Helvetica', 10, 'bold'))
@@ -451,6 +462,34 @@ class ArknightsApp:
 
         self.history_button = tk.Button(right_frame, text="显示错题本", command=self.toggle_history_panel, width=16)
         self.history_button.pack(pady=5)
+    def refresh_device_list(self):
+        """刷新当前可用设备列表"""
+        self.get_connected_devices()
+        if self.connected_devices:
+            menu = self.device_dropdown["menu"]
+            menu.delete(0, "end")
+            for dev in self.connected_devices:
+                menu.add_command(label=dev, command=lambda d=dev: self.device_options.set(d))
+            self.device_options.set(self.connected_devices[0])  # 默认选第一个
+        else:
+            self.device_options.set("")
+            menu = self.device_dropdown["menu"]
+            menu.delete(0, "end")
+
+    def get_connected_devices(self):
+        """获取通过ADB连接的设备列表"""
+        import subprocess
+        try:
+            output = subprocess.check_output(["adb", "devices"], encoding='utf-8')
+            lines = output.strip().split("\n")[1:]  # 跳过第一行
+            self.connected_devices = []
+            for line in lines:
+                if "device" in line:
+                    parts = line.split()
+                    if len(parts) >= 2 and parts[1] == "device":
+                        self.connected_devices.append(parts[0])
+        except Exception as e:
+            print(f"获取设备列表出错: {e}")
 
     # --- 历史面板控制 ---
     def toggle_history_panel(self):
@@ -839,6 +878,7 @@ class ArknightsApp:
                 print("首次识别，尝试连接 ADB 并设置默认 ROI...")
                 try:
                     if loadData.screen_width == 0 or loadData.screen_height == 0:
+                        loadData.initialize_load_data()
                         raise ValueError("无法获取屏幕尺寸，无法设置默认ROI。")
 
                     default_x1_ratio = 0.248; default_y1_ratio = 0.841
@@ -1043,7 +1083,7 @@ class ArknightsApp:
                         print("尝试获取屏幕尺寸...")
                         loadData.get_screen_dimensions() # 假设 loadData 有此方法或类似逻辑
                         if loadData.screen_width == 0 or loadData.screen_height == 0:
-                             raise ValueError("无法获取屏幕尺寸，无法设置默认ROI。")
+                            raise ValueError("无法获取屏幕尺寸，无法设置默认ROI。")
 
                     # 使用 recognize 函数中首次识别的默认比例计算 ROI
                     default_x1_ratio = 0.248; default_y1_ratio = 0.841
