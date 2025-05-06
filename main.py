@@ -46,6 +46,9 @@ class ArknightsApp:
         self.game_mode = tk.StringVar(value="单人")
         self.device_serial = tk.StringVar(value=loadData.manual_serial or "")
 
+        self.is_in_battle = False
+        self.fast_poll_start_time = None
+
         self.left_monsters = {}
         self.right_monsters = {}
         self.images = {}
@@ -923,8 +926,7 @@ class ArknightsApp:
                     # else:
                          # print(f"警告: 无法找到怪物ID {monster_id_str} 对应的输入框。")
 
-        if intelligent_workers_debug and self.auto_fetch_running and screenshot is not None: # intelligent_workers_debug 需定义
-            # print("调试模式：准备保存用于人工审核的截图...")
+        if intelligent_workers_debug and self.auto_fetch_running and screenshot is not None:
             try:
                 x1, y1 = self.main_roi[0]
                 x2, y2 = self.main_roi[1]
@@ -1004,26 +1006,6 @@ class ArknightsApp:
 
 
     # --- 自动获取相关 ---
-    def calculate_average_yellow(self, image):
-        if image is None or image.size == 0:
-            return False
-
-        try:
-            if image.shape[0] > 0 and image.shape[1] > 0:
-                b, g, r = image[0, 0]
-                # 稍微放宽黄色判定，增加鲁棒性
-                is_yellowish = r > 160 and g > 160 and b < 120
-                return is_yellowish
-            else:
-                 print("警告：图像维度无效，无法获取左上角像素。")
-                 return False
-        except IndexError:
-            print("警告：获取像素颜色时发生索引错误，可能图像格式不对。")
-            return False
-        except Exception as e:
-             print(f"检测黄色时出错: {e}")
-             return False
-
     def save_statistics_to_log(self):
 
         try:
@@ -1137,8 +1119,23 @@ class ArknightsApp:
 
     def auto_fetch_loop(self):
         print("自动获取循环开始...")
+        normal_interval = 0.5  # 正常间隔
+        fast_interval = 0.08  # 战斗结束时快速间隔 (80ms)
+        fast_poll_timeout = 60  # 快速轮询最多持续时间，单位秒
         while self.auto_fetch_running:
             loop_start_time = time.time()
+            current_interval = normal_interval  # 默认使用正常间隔
+            # 如果处于战斗状态，准备快速轮询
+            if self.is_in_battle:
+                current_interval = fast_interval
+                if self.fast_poll_start_time is None:
+                    self.fast_poll_start_time = loop_start_time
+                # 检查快速轮询是否超时
+                elif time.time() - self.fast_poll_start_time > fast_poll_timeout:
+                    print(f"警告：快速轮询超过 {fast_poll_timeout} 秒未检测到结算，恢复正常轮询。")
+                    self.is_in_battle = False  # 强制退出战斗状态
+                    self.fast_poll_start_time = None
+                    current_interval = normal_interval
             try:
                 self.auto_fetch_data()
 
@@ -1163,23 +1160,23 @@ class ArknightsApp:
                      time.sleep(0.1)
                 if not self.auto_fetch_running: break # 如果在暂停期间停止了
 
-            # 控制循环频率
+            # 控制循环频率 (使用动态计算的 current_interval)
             loop_duration = time.time() - loop_start_time
-            min_interval = 0.5 # 最小循环间隔
-            sleep_time = max(0, min_interval - loop_duration)
+            sleep_time = max(0, current_interval - loop_duration)
 
             # 分段 sleep 以便能更快响应停止信号
             sleep_end_time = time.time() + sleep_time
             while time.time() < sleep_end_time:
-                 if not self.auto_fetch_running: break
-                 time.sleep(0.1) # 检查间隔
+                if not self.auto_fetch_running: break
+                time.sleep(0.05)  # 使用固定的短检查间隔
 
             if not self.auto_fetch_running:
-                 print("检测到停止标志，退出循环。")
-                 break
+                    print("检测到停止标志，退出循环。")
+                    break
 
         print("自动获取循环结束。")
-        # 确保UI状态最终被正确更新
+        self.is_in_battle = False  # 确保退出时重置状态
+        self.fast_poll_start_time = None
         self.root.after(0, lambda: self.stop_auto_fetch_ui_update("循环结束"))
 
 
@@ -1224,43 +1221,38 @@ class ArknightsApp:
             print("错误：截图失败"); time.sleep(2); return
 
 
-        # match_results = loadData.match_images(screenshot, loadData.process_images)
         match_results = loadData.match_images(screenshot, loadData.process_templates_info)
         match_results = sorted(match_results, key=lambda x: x[1], reverse=True)
         best_match_idx, best_match_score = match_results[0]
-        match_threshold = 0.5 # 事件匹配阈值，用于判断当前处于哪个页面
+        match_threshold = 0.6 # 事件匹配阈值，用于判断当前处于哪个页面
 
         if best_match_score < match_threshold:
             print(f"最高匹配分数 {best_match_score:.3f} 低于阈值 {match_threshold}，认为未匹配到明确事件，跳过。")
-            # 可以在这里增加逻辑，比如截图保存到 'unmatched' 文件夹供分析
             time.sleep(1)
             return
-
+        if best_match_idx in [6, 61, 7, 71, 14]:
+            if not self.is_in_battle:
+                print("检测到进入战斗状态，准备快速轮询监测结算...")
+                self.is_in_battle = True
+                self.fast_poll_start_time = None  # 重置超时计时器
+        # 如果检测到结算 (8-11) 或者其他非战斗状态，则退出战斗状态
+        elif best_match_idx not in [6, 61, 7, 71, 14]:
+            if self.is_in_battle:
+                print("检测到非战斗状态，恢复正常轮询。")
+                self.is_in_battle = False
+                self.fast_poll_start_time = None
         try:
-            # if best_match_idx == 0: # 加入赛事
-            #     print("状态: 加入赛事 -> 点击")
-            #     loadData.click(relative_points["right_all_join_start"]); time.sleep(1.5)
-            # elif best_match_idx == 1: # 主界面
-            #     print("状态: 主界面 -> 选择模式")
-            #     if self.game_mode.get() == "30人":
-            #         print("模式: 30人 -> 点击")
-            #         loadData.click(relative_points["left_all"]); time.sleep(2)
-            #         loadData.click(relative_points["right_all_join_start"]); time.sleep(3)
-            #     else:
-            #         print("模式: 单人 -> 点击")
-            #         loadData.click(relative_points["right_gift_entertain"]); time.sleep(3)
-            if best_match_idx == 0: # 加入赛事 (模板ID 0)
-                print(f"状态: 加入赛事 (ID {best_match_idx}, Score {best_match_score:.3f}) -> 点击")
-                loadData.click(loadData.relative_points["right_all_join_start"]); time.sleep(1.5)
-            elif best_match_idx == 1: # 主界面-30人按钮 (模板ID 1)
-                print(f"状态: 主界面 (检测到30人按钮, ID {best_match_idx}, Score {best_match_score:.3f}) -> 选择模式")
+            if best_match_idx == 0: # 加入赛事
+                print("状态: 加入赛事 -> 点击")
+                loadData.click(relative_points["right_all_join_start"]); time.sleep(1.5)
+            elif best_match_idx == 1: # 主界面
+                print("状态: 主界面 -> 选择模式")
                 if self.game_mode.get() == "30人":
-                    print("模式: 30人 -> 点击左侧ALL按钮")
-                    loadData.click(loadData.relative_points["left_all"]); time.sleep(2)
-                    loadData.click(loadData.relative_points["right_all_join_start"]); time.sleep(3)
-                else: # 单人或其他模式
-                    print("模式: 单人 -> 点击右侧自娱自乐按钮")
-                    loadData.click(loadData.relative_points["right_gift_entertain"]); time.sleep(3)
+                    print("模式: 30人 -> 点击")
+                    loadData.click(relative_points["right_all_join_start"]); time.sleep(3)
+                else:
+                    print("模式: 单人 -> 点击")
+                    loadData.click(relative_points["right_gift_entertain"]); time.sleep(3)
             elif best_match_idx == 2: # 开始游戏
                 print("状态: 开始游戏 -> 点击")
                 loadData.click(relative_points["right_all_join_start"]); time.sleep(3)
@@ -1269,11 +1261,13 @@ class ArknightsApp:
                  time.sleep(0.5)
                  self.root.after(0, self.reset_entries)
                  time.sleep(0.2)
+                 if best_match_idx == 15:
+                     print("当前已淘汰，只进行预测")
                  print("执行识别预测...")
                  self.recognize() # 这个调用是跨线程的UI操作，有风险
                  time.sleep(0.5)
 
-                 if not self.is_invest.get():
+                 if not self.is_invest.get() and best_match_idx != 15:
                      print("执行投资...")
                      if self.current_prediction > 0.5: # 投右
                          print("投右 -> 点击")
@@ -1281,17 +1275,16 @@ class ArknightsApp:
                      else: # 投左
                          print("投左 -> 点击")
                          loadData.click(relative_points["left_gift"])
-                     if self.game_mode.get() == "30人":
-                         print("等待20s..."); time.sleep(20)
-                     else:
-                         time.sleep(2)
+                     print("等待20s..."); time.sleep(20)
+                 elif best_match_idx == 15:
+                     print("当前已淘汰，只进行预测")
                  else:
                      print("执行观望 -> 点击")
                      loadData.click(relative_points["watch_this_round"]); time.sleep(5)
             elif best_match_idx in [8, 9, 10, 11]:
                      print(
                          f"状态: 结算 (匹配索引 {best_match_idx}, 分数 {best_match_score:.3f}) -> 进入处理流程")  # 更明确的进入提示
-                     time.sleep(0.5)
+                     time.sleep(0.1)
 
                      if best_match_idx  == 8 or best_match_idx == 11:
                          is_left_winner  = False
@@ -1320,18 +1313,24 @@ class ArknightsApp:
 
                      print("点击下一轮...")
                      loadData.click(relative_points["right_all_join_start"])
-                     wait_after_fill = 10  # 可以适当调整
+                     wait_after_fill = 8
                      print(f"等待 {wait_after_fill} 秒...")
                      # 分段 sleep 检查停止标志
                      sleep_end = time.time() + wait_after_fill
                      while time.time() < sleep_end:
                          if not self.auto_fetch_running: break
                          time.sleep(0.1)
-                     if not self.auto_fetch_running: return  # 如果中途停止
+                     if not self.auto_fetch_running:
+                         self.is_in_battle = False
+                         self.fast_poll_start_time = None
+                         return
+                     self.is_in_battle = False
+                     self.fast_poll_start_time = None
 
             elif best_match_idx in [6, 7, 61, 71, 14]:
                  print(f"状态: 战斗中-> 等待 ")
-                 time.sleep(3)
+                 if not self.is_in_battle:
+                     time.sleep(3)
             elif best_match_idx in [12, 13]: # 返回主页
                  print("状态: 返回主页 -> 点击")
                  loadData.click(relative_points["right_all_join_start"]); time.sleep(3)
