@@ -42,7 +42,7 @@ class ArknightsApp:
         self.auto_fetch_running = False
         self.no_region = True
         self.first_recognize = True
-        self.is_invest = tk.BooleanVar(value=True)
+        self.is_invest = tk.BooleanVar(value=False)
         self.game_mode = tk.StringVar(value="单人")
         self.device_serial = tk.StringVar(value=loadData.manual_serial or "")
 
