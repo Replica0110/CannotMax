@@ -219,40 +219,70 @@ def get_screen_dimensions():
         print(f"获取分辨率时发生未知错误 (设备: {device_serial}): {e}")
         return None
 
+
+import os
+import cv2
+
+
 def load_process_images(target_width, target_height):
     """加载模板图像，并结合预定义的ROI信息"""
     print(f"尝试加载模板图像并关联ROI...")
     loaded_info = []
+
     if target_width <= 0 or target_height <= 0:
         print("错误：无效的目标尺寸，无法加载模板图像。")
         return []
+
+    images_dir = 'images/process/'
+
     try:
-        for i in range(16): # 假设模板是 0 到 15
-            img_path = f'images/process/{i}.png'
-            if not os.path.exists(img_path):
-                # print(f"信息：找不到模板图片 {img_path}，跳过。") # 可以取消注释用于调试
-                continue
+        if not os.path.exists(images_dir):
+            print(f"错误：目录 {images_dir} 不存在。")
+            return []
+
+        # 获取目录下所有以 .png 结尾的文件，并按数字顺序排序
+        image_files = [f for f in os.listdir(images_dir) if f.endswith('.png')]
+
+        # 只保留文件名是纯数字的，例如 "0.png", "1.png"
+        valid_files = []
+        for f in image_files:
+            name_without_ext = os.path.splitext(f)[0]
+            if name_without_ext.isdigit():
+                valid_files.append(f)
+
+        # 按数字排序
+        valid_files.sort(key=lambda x: int(os.path.splitext(x)[0]))
+
+        if not valid_files:
+            print("警告：未找到符合要求的模板图片。")
+            return []
+
+        for file_name in valid_files:
+            img_id = int(os.path.splitext(file_name)[0])
+            img_path = os.path.join(images_dir, file_name)
 
             img = cv2.imread(img_path)
             if img is None:
                 print(f"警告：无法读取模板图片 {img_path}")
                 continue
 
-            roi = TEMPLATE_ROIS.get(i) # 获取该模板对应的ROI
+            roi = TEMPLATE_ROIS.get(img_id)  # 获取模板对应的ROI
             if roi is None:
-                print(f"警告：模板 {i} 没有在 TEMPLATE_ROIS 中定义ROI，将无法进行匹配。")
+                print(f"警告：模板 {img_id} 没有在 TEMPLATE_ROIS 中定义ROI，将无法进行匹配。")
                 continue
 
-            loaded_info.append({'id': i, 'image': img, 'roi': roi})
+            loaded_info.append({'id': img_id, 'image': img, 'roi': roi})
 
         print(f"成功加载并关联了 {len(loaded_info)} 个模板及其ROI信息。")
         return loaded_info
+
     except cv2.error as e:
         print(f"OpenCV 错误（可能在读取时发生）: {e}")
         return []
     except Exception as e:
         print(f"加载模板图像或关联ROI时发生未知错误: {e}")
         return []
+
 
 def capture_screenshot():
     """捕获当前设备的屏幕截图"""
