@@ -87,19 +87,19 @@ def select_roi():
         img = cv2.cvtColor(screenshot, cv2.COLOR_RGB2BGR)
 
         # 添加操作提示
-        cv2.putText(img, "Drag to select area | ENTER:confirm | ESC:retry",
+        cv2.putText(img, "拖动选择识别区域 | ENTER:确认 | ESC:重新选取",
                     (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
 
         # 添加示例图片
         example_img = cv2.imread("images/eg.png")
         # 显示示例图片在单独的窗口中
-        cv2.imshow("example", example_img)
+        cv2.imshow("示例", example_img)
 
         # 显示窗口
-        cv2.namedWindow("Select ROI", cv2.WINDOW_NORMAL)
-        cv2.resizeWindow("Select ROI", 1280, 720)
-        cv2.setMouseCallback("Select ROI", mouse_callback, img)
-        cv2.imshow("Select ROI", img)
+        cv2.namedWindow("选择区域 ROI", cv2.WINDOW_NORMAL)
+        cv2.resizeWindow("选择区域 ROI", 1280, 720)
+        cv2.setMouseCallback("选择区域 ROI", mouse_callback, img)
+        cv2.imshow("选择区域 ROI", img)
 
         key = cv2.waitKey(0)
         cv2.destroyAllWindows()
