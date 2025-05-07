@@ -223,7 +223,7 @@ class ArknightsApp:
 
     def load_model(self):
         """加载预训练的PyTorch模型"""
-        model_path = 'models/best_model_full.pth'
+        model_path = 'models/best_epoch/model.pth'
         self.model = None # 先置为 None
         self.model_loaded_successfully = False # 重置标志位
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu') # 确保 device 在这里初始化
@@ -247,25 +247,15 @@ class ArknightsApp:
             except TypeError:
                 model = torch.load(model_path, map_location=self.device)
 
-            # 检查加载的是否是我们期望的类型
-            # ================== 修改这里，检查是否是 UnitAwareTransformer 的实例 ==================
             if not isinstance(model, UnitAwareTransformer):
-                 # 如果加载的不是预期的类实例，可能是状态字典或其他东西
-                 # 尝试处理状态字典的情况（如果模型保存的是state_dict）
                  if isinstance(model, dict) and 'model_state_dict' in model:
                       logger.info("检测到加载的是状态字典，尝试创建模型实例并加载...")
-                      # 这里需要能实例化 UnitAwareTransformer，需要知道它的初始化参数
-                      # 例如: model_instance = UnitAwareTransformer(param1, param2, ...)
-                      # 如果不知道参数，就无法完成加载
+
                       raise NotImplementedError("加载状态字典需要模型实例化参数，请在代码中提供。或者确保保存的是完整的模型对象。")
-                      # model_instance.load_state_dict(model['model_state_dict'])
-                      # self.model = model_instance.to(self.device)
                  else:
                       # 加载的对象类型未知
                       raise TypeError(f"加载的文件类型不是预期的 UnitAwareTransformer，而是 {type(model)}。请检查模型保存方式。")
-            # ===================================================================================
             else:
-                # 加载成功，是 UnitAwareTransformer 实例
                  self.model = model.to(self.device)
 
 
@@ -276,15 +266,14 @@ class ArknightsApp:
         # --- 更精细的错误处理 ---
         except FileNotFoundError as e:
             error_msg = f"模型文件未找到: {str(e)}\n请确认模型文件存在于 'models' 目录下或其父目录中，并且已经训练。"
-            logger.error(error_msg) # 打印到控制台
-            # 不在这里关闭窗口，让 __init__ 返回后检查标志位
+            logger.error(error_msg)
         except AttributeError as e:
              # 特别处理找不到类定义的错误
              error_msg = f"模型加载失败: {str(e)}\n\n错误提示：很可能是因为找不到模型类 (例如 'UnitAwareTransformer') 的定义。\n"
              error_msg += "请确保：\n1. 定义模型类的 Python 文件 (例如 train.py) 与主程序在同一环境。\n"
              error_msg += "2. 主程序已正确导入该模型类 (例如 `from train import UnitAwareTransformer`)。\n"
              error_msg += "3. 模型保存时使用的类定义与当前导入的类定义一致。"
-             print(error_msg)
+             logger.error(error_msg)
              import traceback
              traceback.print_exc() # 打印详细堆栈
         except ImportError as e:
@@ -733,26 +722,26 @@ class ArknightsApp:
         data_row = image_data[0].tolist()
         data_row.append(result_label)
 
-        if intelligent_workers_debug: # intelligent_workers_debug 需定义或导入
-            if self.current_image_name:
-                data_row.append(self.current_image_name)
-                if self.current_image is not None:
-                    try:
-                        save_dir = 'data/images'
-                        os.makedirs(save_dir, exist_ok=True)
-                        image_path = os.path.join(save_dir, self.current_image_name)
-                        if self.current_image.size > 0:
-                             cv2.imwrite(image_path, self.current_image)
-                             # print(f"调试图片已保存: {image_path}") # 减少输出
-                        else:
-                             logger.warning(f"警告: 尝试保存空的调试图片 {self.current_image_name}")
-                        self.current_image = None
-                        self.current_image_name = ""
-                    except Exception as e:
-                        logger.error(f"保存调试图片时出错: {e}")
-            else:
-                 # 保持列数一致
-                 data_row.append("")
+        # if intelligent_workers_debug: # intelligent_workers_debug 需定义或导入
+        #     if self.current_image_name:
+        #         data_row.append(self.current_image_name)
+        #         if self.current_image is not None:
+        #             try:
+        #                 save_dir = 'data/images'
+        #                 os.makedirs(save_dir, exist_ok=True)
+        #                 image_path = os.path.join(save_dir, self.current_image_name)
+        #                 if self.current_image.size > 0:
+        #                      cv2.imwrite(image_path, self.current_image)
+        #                      # print(f"调试图片已保存: {image_path}") # 减少输出
+        #                 else:
+        #                      logger.warning(f"警告: 尝试保存空的调试图片 {self.current_image_name}")
+        #                 self.current_image = None
+        #                 self.current_image_name = ""
+        #             except Exception as e:
+        #                 logger.error(f"保存调试图片时出错: {e}")
+        #     else:
+        #          # 保持列数一致
+        #          data_row.append("")
 
 
         csv_file_path = 'arknights.csv'
