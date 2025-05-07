@@ -1,19 +1,19 @@
 import pandas as pd
 import numpy as np
-
+from loguru import logger
 
 def clean_data(file_path, output_path):
-    print(f"开始清洗数据文件: {file_path}")
+    logger.info(f"开始清洗数据文件: {file_path}")
 
     # 读取CSV文件，不设置表头，并添加原始行号列（从1开始）
     data = pd.read_csv(file_path, header=None)
     data['original_index'] = data.index + 1  # 保存原始行号（从1开始）
     original_rows = len(data)
-    print(f"原始数据行数: {original_rows}")
+    logger.info(f"原始数据行数: {original_rows}")
 
     # 获取数据中特征的列数（不包括标签列和原始行号列）
     feature_count = data.shape[1] - 2  # 减去标签列和原始行号列
-    print(f"特征总数: {feature_count}")
+    logger.info(f"特征总数: {feature_count}")
 
     # 分离特征、标签和原始行号
     features = data.iloc[:, :-2]  # 不包含标签列和原始行号列
@@ -27,15 +27,15 @@ def clean_data(file_path, output_path):
     # 检查最后一行28列和62列是否大于6
     if abs(last_row_features[27]) > 6 or abs(last_row_features[61]) > 6:
         last_row_valid = False
-        print("警告: 最后一行的28列或62列数据大于6")
+        logger.warning("警告: 最后一行的28列或62列数据大于6")
 
     # 检查最后一行是否有任何3位数
     if np.any(np.abs(last_row_features) >= 100):
         last_row_valid = False
-        print("警告: 最后一行包含3位数")
+        logger.warning("警告: 最后一行包含3位数")
 
     if not last_row_valid:
-        print("错误: 最后一行不满足清洗条件，无法用于替换")
+        logger.error("错误: 最后一行不满足清洗条件，无法用于替换")
         return
 
     # 保存最后一行用于替换（包括原始行号）
@@ -52,14 +52,14 @@ def clean_data(file_path, output_path):
         if np.any(np.abs(row) >= 100):
             rows_to_remove.append(i)
 
-    print(f"发现需要删除的行数: {len(rows_to_remove)}")
+    logger.info(f"发现需要删除的行数: {len(rows_to_remove)}")
 
     # 创建新的数据框（保留原始行号）
     cleaned_data = data.drop(rows_to_remove).reset_index(drop=True)
 
     # 如果删除了最后一行，则不需要保留副本
     if len(data) - 1 in rows_to_remove:
-        print("最后一行被删除，不需要特别处理")
+        logger.info("最后一行被删除，不需要特别处理")
     else:
         # 删除最后一行（因为我们有副本）
         cleaned_data = cleaned_data.iloc[:-1]
@@ -69,12 +69,12 @@ def clean_data(file_path, output_path):
     for _ in range(replacement_count):
         cleaned_data = pd.concat([cleaned_data, pd.DataFrame([last_row])], ignore_index=True)
 
-    print(f"清洗后的数据行数: {len(cleaned_data)}")
-    print(f"替换了 {replacement_count} 行数据")
+    logger.info(f"清洗后的数据行数: {len(cleaned_data)}")
+    logger.info(f"替换了 {replacement_count} 行数据")
 
     # 去重操作
     duplicated_count_before = cleaned_data.duplicated(subset=cleaned_data.columns[:-1]).sum()  # 不包含原始行号列
-    print(f"去重前的重复行数: {duplicated_count_before}")
+    logger.info(f"去重前的重复行数: {duplicated_count_before}")
 
     # 对特征列进行去重，保留标签和原始行号
     duplicate_indices = cleaned_data.iloc[:, :-2].duplicated(keep='first')  # 只比较特征列
@@ -82,14 +82,14 @@ def clean_data(file_path, output_path):
 
     # 如果有重复行，去除重复行
     if duplicate_count > 0:
-        print(f"发现 {duplicate_count} 行特征重复")
+        logger.info(f"发现 {duplicate_count} 行特征重复")
         cleaned_data = cleaned_data[~duplicate_indices].reset_index(drop=True)
-        print(f"去重后的数据行数: {len(cleaned_data)}")
+        logger.info(f"去重后的数据行数: {len(cleaned_data)}")
     else:
-        print("没有发现重复的特征")
+        logger.info("没有发现重复的特征")
 
     # 筛选异常波动数据
-    print("\n开始筛选异常波动数据...")
+    logger.info("\n开始筛选异常波动数据...")
 
     # 分离特征、标签和原始行号
     features_cleaned = cleaned_data.iloc[:, :-2]  # 特征列
@@ -191,15 +191,15 @@ def clean_data(file_path, output_path):
 
     # 仅当有异常时才输出总结报告
     if has_anomaly:
-        print("\n异常波动处理报告:")
+        logger.info("\n异常波动处理报告:")
         for col, report in anomaly_report.items():
-            print(f"\n列 {col + 1}:")
-            print(f"删除前数值: {report['pre']}")
-            print(f"识别异常值: {report['anomalies']}")
-            print(f"删除后数值: {report['post']}")
-            print(f"删除的行号: {report['removed_rows']}")
+            logger.info(f"\n列 {col + 1}:")
+            logger.info(f"删除前数值: {report['pre']}")
+            logger.info(f"识别异常值: {report['anomalies']}")
+            logger.info(f"删除后数值: {report['post']}")
+            logger.info(f"删除的行号: {report['removed_rows']}")
     else:
-        print("\n所有列均未发现需要处理的异常波动")
+        logger.info("\n所有列均未发现需要处理的异常波动")
 
     # 合并处理后的数据（不包含原始行号列）
     cleaned_data = pd.concat([features_cleaned, labels_cleaned], axis=1)
@@ -208,13 +208,13 @@ def clean_data(file_path, output_path):
     headers = [f"{i}" for i in range(1, 114)]  # 生成表头1到69
     # 保存清洗后的数据
     cleaned_data.to_csv(output_path, index=False, header=headers)
-    print(f"\n清洗后的数据已保存到: {output_path}")
+    logger.info(f"\n清洗后的数据已保存到: {output_path}")
 
     # 输出标签分布
     label_counts = labels_cleaned.value_counts()
-    print("\n标签分布:")
+    logger.info("\n标签分布:")
     for label, count in label_counts.items():
-        print(f"  {label}: {count} 行")
+        logger.info(f"  {label}: {count} 行")
 
 
 if __name__ == "__main__":

@@ -8,17 +8,18 @@ from sklearn.model_selection import train_test_split
 from torch.utils.data import Dataset, DataLoader
 import time
 from torch.cuda.amp import GradScaler
+from loguru import logger
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 def preprocess_data(csv_file):
     """预处理CSV文件，将异常值修正为合理范围"""
-    print(f"预处理数据文件: {csv_file}")
+    logger.info(f"预处理数据文件: {csv_file}")
 
     # 读取CSV文件
     data = pd.read_csv(csv_file, header=None, skiprows=1)
-    print(f"原始数据形状: {data.shape}")
+    logger.info(f"原始数据形状: {data.shape}")
 
     # 检查特征范围
     features = data.iloc[:, :-1]
@@ -27,12 +28,12 @@ def preprocess_data(csv_file):
     # 统计极端值
     extreme_values = (np.abs(features) > 20).sum().sum()
     if extreme_values > 0:
-        print(f"发现 {extreme_values} 个绝对值大于20的特征值")
+        logger.warning(f"发现 {extreme_values} 个绝对值大于20的特征值")
 
     # 检查标签
     invalid_labels = labels.apply(lambda x: x not in ["L", "R"]).sum()
     if invalid_labels > 0:
-        print(f"发现 {invalid_labels} 个无效标签")
+        logger.warning(f"发现 {invalid_labels} 个无效标签")
 
     # 输出特征的范围信息
     feature_min = features.min().min()
@@ -40,8 +41,8 @@ def preprocess_data(csv_file):
     feature_mean = features.mean().mean()
     feature_std = features.std().mean()
 
-    print(f"特征值范围: [{feature_min}, {feature_max}]")
-    print(f"特征值平均值: {feature_mean:.4f}, 标准差: {feature_std:.4f}")
+    logger.info(f"特征值范围: [{feature_min}, {feature_max}]")
+    logger.info(f"特征值平均值: {feature_mean:.4f}, 标准差: {feature_std:.4f}")
 
     # 如果需要，可以在这里对数据进行更多的预处理
     # 例如：将极端值截断到合理范围
@@ -264,7 +265,7 @@ def train_one_epoch(model, train_loader, criterion, optimizer, scaler=None):
             or torch.isnan(rs).any()
             or torch.isnan(rc).any()
         ):
-            print("警告: 输入数据包含NaN，跳过该批次")
+            logger.warning("警告：输入数据包含NaN，跳过该批次")
             continue
 
         if (
@@ -273,12 +274,12 @@ def train_one_epoch(model, train_loader, criterion, optimizer, scaler=None):
             or torch.isinf(rs).any()
             or torch.isinf(rc).any()
         ):
-            print("警告: 输入数据包含Inf，跳过该批次")
+            logger.warning("警告：输入数据包含Inf，跳过该批次")
             continue
 
         # 确保labels严格在0-1之间
         if (labels < 0).any() or (labels > 1).any():
-            print("警告: 标签值不在[0,1]范围内，进行修正")
+            logger.warning("警告：标签值不在[0,1]范围内，进行修正")
             labels = torch.clamp(labels, 0, 1)
 
         try:
@@ -286,19 +287,19 @@ def train_one_epoch(model, train_loader, criterion, optimizer, scaler=None):
                 outputs = model(ls, lc, rs, rc).squeeze()
                 # 确保输出在合理范围内
                 if torch.isnan(outputs).any() or torch.isinf(outputs).any():
-                    print("警告: 模型输出包含NaN或Inf，跳过该批次")
+                    logger.warning("警告：模型输出包含NaN或Inf，跳过该批次")
                     continue
 
                 # 确保输出严格在0-1之间，因为BCELoss需要
                 if (outputs < 0).any() or (outputs > 1).any():
-                    print("警告: 模型输出不在[0,1]范围内，进行修正")
+                    logger.warning("警告：模型输出不在[0,1]范围内，进行修正")
                     outputs = torch.clamp(outputs, 1e-7, 1 - 1e-7)
 
                 loss = criterion(outputs, labels)
 
             # 检查loss是否有效
             if torch.isnan(loss) or torch.isinf(loss):
-                print(f"警告: 损失值为 {loss.item()}, 跳过该批次")
+                logger.warning(f"警告：损失值为 {loss.item()}, 跳过该批次")
                 continue
 
             if scaler:  # 使用混合精度
@@ -319,7 +320,7 @@ def train_one_epoch(model, train_loader, criterion, optimizer, scaler=None):
             total += labels.size(0)
 
         except RuntimeError as e:
-            print(f"警告: 训练过程中出错 - {str(e)}")
+            logger.warning(f"警告：训练过程中出错 - {str(e)}")
             continue
 
     return total_loss / max(1, len(train_loader)), 100 * correct / max(1, total)
@@ -346,7 +347,7 @@ def evaluate(model, data_loader, criterion):
                 or torch.isinf(rs).any()
                 or torch.isinf(rc).any()
             ):
-                print("警告: 评估时输入数据包含NaN或Inf，跳过该批次")
+                logger.warning("警告：评估时输入数据包含NaN或Inf，跳过该批次")
                 continue
 
             # 确保labels严格在0-1之间
@@ -358,7 +359,7 @@ def evaluate(model, data_loader, criterion):
                     outputs = model(ls, lc, rs, rc).squeeze()
                     # 确保输出在合理范围内
                     if torch.isnan(outputs).any() or torch.isinf(outputs).any():
-                        print("警告: 评估时模型输出包含NaN或Inf，跳过该批次")
+                        logger.warning("警告：评估时模型输出包含NaN或Inf，跳过该批次")
                         continue
 
                     # 确保输出严格在0-1之间，因为BCELoss需要
@@ -377,7 +378,7 @@ def evaluate(model, data_loader, criterion):
                 total += labels.size(0)
 
             except RuntimeError as e:
-                print(f"警告: 评估过程中出错 - {str(e)}")
+                logger.warning(f"警告：评估过程中出错 - {str(e)}")
                 continue
 
     return total_loss / max(1, len(data_loader)), 100 * correct / max(1, total)
@@ -428,7 +429,7 @@ def main():
         torch.cuda.manual_seed_all(config["seed"])
 
     # 设置设备
-    print(f"使用设备: {device}")
+    logger.info(f"使用设备: {device}")
 
     # 初始化 GradScaler 用于混合精度训练
     scaler = None
@@ -437,19 +438,19 @@ def main():
             scaler = torch.amp.GradScaler('cuda')
         except (AttributeError, TypeError):
             scaler = GradScaler() # 如果是老版本
-        print("CUDA可用，已启用混合精度训练的GradScaler。")
+        logger.info("CUDA可用，已启用混合精度训练的GradScaler。")
 
     # 检查CUDA可用性
     if torch.cuda.is_available():
-        print(f"CUDA设备数量: {torch.cuda.device_count()}")
-        print(f"当前CUDA设备: {torch.cuda.current_device()}")
-        print(f"CUDA设备名称: {torch.cuda.get_device_name(0)}")
+        logger.info(f"CUDA设备数量: {torch.cuda.device_count()}")
+        logger.info(f"当前CUDA设备: {torch.cuda.current_device()}")
+        logger.info(f"CUDA设备名称: {torch.cuda.get_device_name(0)}")
 
         # 设置确定性计算以增加稳定性
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = True
     else:
-        print("警告: 未检测到GPU，将在CPU上运行训练，这可能会很慢!")
+        logger.warning("警告：未检测到GPU，将在CPU上运行训练，这可能会很慢!")
 
     # 先预处理数据，检查是否有异常值
     num_data = preprocess_data(config["data_file"])
@@ -468,7 +469,7 @@ def main():
         dataset, test_size=config["test_size"], seed=config["seed"]
     )
 
-    print(f"训练集大小: {train_size}, 验证集大小: {val_size}")
+    logger.info(f"训练集大小: {train_size}, 验证集大小: {val_size}")
 
     # 数据加载器
     train_loader = DataLoader(
@@ -491,7 +492,7 @@ def main():
         num_layers=config["n_layers"],
     ).to(device)
 
-    print(
+    logger.info(
         f"模型参数数量: {sum(p.numel() for p in model.parameters() if p.requires_grad)}"
     )
 
@@ -512,7 +513,7 @@ def main():
 
     # 训练循环
     for epoch in range(config["epochs"]):
-        print(f"\nEpoch {epoch + 1}/{config['epochs']}")
+        logger.info(f"\nEpoch {epoch + 1}/{config['epochs']}")
 
         # 训练
         train_loss, train_acc = train_one_epoch(
@@ -539,9 +540,9 @@ def main():
                 os.path.join(config["save_dir"], "best_model_acc.pth"),
             )
 
-            print("保存了新的最佳准确率模型!")
+            logger.info("保存了新的最佳准确率模型!")
         else:
-            print(f"最佳准确率为: {best_acc:.2f}")
+            logger.info(f"最佳准确率为: {best_acc:.2f}")
 
         # 保存最佳模型（基于损失）
         if val_loss < best_loss:
@@ -550,9 +551,9 @@ def main():
                 model,
                 os.path.join(config["save_dir"], "best_model_loss.pth"),
             )
-            print("保存了新的最佳损失模型!")
+            logger.info("保存了新的最佳损失模型!")
         else:
-            print(f"最佳损失为: {best_loss:.4f}")
+            logger.info(f"最佳损失为: {best_loss:.4f}")
 
         torch.save(model, os.path.join(config["save_dir"], "best_model_full.pth")) # 最后一次计算的模型
 
@@ -569,9 +570,9 @@ def main():
         # }, os.path.join(config['save_dir'], 'latest_checkpoint.pth'))
 
         # 打印训练信息
-        print(f"Train Loss: {train_loss:.4f} | Acc: {train_acc:.2f}%")
-        print(f"Val Loss: {val_loss:.4f} | Acc: {val_acc:.2f}%")
-        print("-" * 40)
+        logger.info(f"Train Loss: {train_loss:.4f} | Acc: {train_acc:.2f}%")
+        logger.info(f"Val Loss: {val_loss:.4f} | Acc: {val_acc:.2f}%")
+        logger.info("-" * 40)
 
         # 计时
         if epoch == 0:
@@ -585,13 +586,13 @@ def main():
             estimated_total_time = avg_epoch_time * config["epochs"]
             remaining_time = estimated_total_time - elapsed_time
 
-            print(f"Epoch Time: {epoch_duration:.2f}s")
-            print(f"Elapsed Time: {elapsed_time / 60:.2f}min")
-            print(f"Estimated Remaining Time: {remaining_time / 60:.2f}min")
-            print(f"Estimated Total Time: {estimated_total_time / 60:.2f}min")
+            logger.info(f"Epoch Time: {epoch_duration:.2f}s")
+            logger.info(f"Elapsed Time: {elapsed_time / 60:.2f}min")
+            logger.info(f"Estimated Remaining Time: {remaining_time / 60:.2f}min")
+            logger.info(f"Estimated Total Time: {estimated_total_time / 60:.2f}min")
             epoch_start_time = current_time  # Reset for next epoch
 
-        print("-" * 40)
+        logger.info("-" * 40)
 
         # 绘制并保存训练历史
         # if (epoch + 1) % 5 == 0 or epoch == config['epochs'] - 1:
@@ -600,7 +601,7 @@ def main():
         #         save_path=os.path.join(config['save_dir'], 'training_history.png')
         #     )
 
-    print(f"训练完成! 最佳验证准确率: {best_acc:.2f}%, 最佳验证损失: {best_loss:.4f}")
+    logger.info(f"训练完成! 最佳验证准确率: {best_acc:.2f}%, 最佳验证损失: {best_loss:.4f}")
 
     # 保存最终训练历史
     # plot_training_history(

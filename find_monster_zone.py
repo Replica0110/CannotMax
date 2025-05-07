@@ -3,7 +3,7 @@ import numpy as np
 import warnings
 from scipy.optimize import least_squares
 from scipy.spatial.distance import pdist, squareform
-
+from loguru import logger
 
 # 类伽马变换函数
 def adjust_quasi_gamma(image):
@@ -90,9 +90,9 @@ def find_big(crop, x_ratio, minR, maxR, width, p1=30, p2=35):
             for m in circles_big_bias:
                 j = np.append(m, x_ratio.index(i))
                 results.append(j)
-                print(j)
+                logger.info(j)
         else:
-            print(f"section{x_ratio.index(i)} circle not detected")
+            logger.warning(f"section{x_ratio.index(i)} circle not detected")
 
     results = np.array(results)
     return results
@@ -120,7 +120,7 @@ def find_small(crop_small, x_ratio_small, x_ratio, minR, maxR, width):
                 print(j)
 
         else:
-            print(f"section{x_ratio.index(i)} circle not detected")
+            logger.error(f"section{x_ratio.index(i)} circle not detected")
 
     results = np.array(results)
     return results
@@ -255,7 +255,7 @@ def cutFrame(image, high_tol=False):
             while std_y > 0.02 * r_refer:
                 # 如果数组为空，报错
                 if filtered_big.size == 0:
-                    print(results_big)
+                    logger.warning(results_big)
                     warnings.warn("筛选出现问题，请检查以上数据输入是否合法")
                     break
 
@@ -279,7 +279,7 @@ def cutFrame(image, high_tol=False):
             while std_x > 0.5 * r_refer:
                 # 如果数组为空，报错
                 if filtered_big_p.size == 0:
-                    print(results_big)
+                    logger.error(results_big)
                     warnings.warn("筛选出现问题，请检查以上数据输入是否合法")
                     break
 
@@ -290,7 +290,7 @@ def cutFrame(image, high_tol=False):
                 std_x = np.std(filtered_big_p[:, -1])
 
             filtered_big = filtered_big_p[:, :-1]
-            print(filtered_big)
+            logger.info(filtered_big)
 
     # 小圆识别错误的情况
     elif small_key == 3:
@@ -383,8 +383,8 @@ if __name__ == "__main__":
         cv2.circle(image, (i[0], i[1]), i[2], (0, 255, 0), 2)
 
     d_avatar, d_nums = cutFrame(image)
-    print(f"d_avatar\n{d_avatar}")
-    print(f"d_nums\n{d_nums}")
+    logger.info(f"d_avatar\n{d_avatar}")
+    logger.info(f"d_nums\n{d_nums}")
     divisors = np.array([width, height, width, height])
     avatar = np.round(d_avatar * divisors).astype("int")
     nums = np.round(d_nums * divisors).astype("int")

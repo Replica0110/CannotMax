@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import csv
+import logging
 import os
 import subprocess
 import threading
@@ -14,12 +15,13 @@ import loadData
 import recognize
 import math
 import pandas as pd
+from loguru import logger
 
 try:
     from train import UnitAwareTransformer 
     MODEL_CLASS_IMPORTED = True
 except ImportError:
-    print("警告：无法从 train.py 导入 UnitAwareTransformer。")
+    logger.warning("警告：无法从 train.py 导入 UnitAwareTransformer。")
     MODEL_CLASS_IMPORTED = False
 
 
@@ -125,11 +127,11 @@ class ArknightsApp:
             # 30人模式下，强制为投资（即 is_invest 为 False），并禁用观望复选框
             self.is_invest.set(False) # 注意：根据原代码逻辑，False 代表投资
             self.invest_checkbox.config(state=tk.DISABLED)
-            print("切换到30人模式，强制设为投资，禁用观望选项。")
+            logger.info("切换到30人模式，强制设为投资，禁用观望选项。")
         else: # 单人模式或其他模式
             # 允许用户选择投资或观望，启用复选框
             self.invest_checkbox.config(state=tk.NORMAL)
-            print(f"切换到 {current_mode} 模式，允许选择投资/观望。")
+            logger.info(f"切换到 {current_mode} 模式，允许选择投资/观望。")
     def _on_mousewheel(self, event):
 
         if self.history_visible: # 仅当历史面板可见时响应
@@ -194,13 +196,13 @@ class ArknightsApp:
         base_size = 30 # 图标基础大小
         icon_size = int(base_size * scaling_factor) # 根据缩放因子调整
 
-        print(f"图标缩放因子: {scaling_factor}, 计算后图标尺寸: {icon_size}x{icon_size}")
+        logger.info(f"图标缩放因子: {scaling_factor}, 计算后图标尺寸: {icon_size}x{icon_size}")
 
         for i in range(1, MONSTER_COUNT + 1):
             try:
                 img_path = f"images/{i}.png"
                 if not os.path.exists(img_path):
-                    print(f"警告: 找不到图片 {img_path}")
+                    logger.warning(f"警告: 找不到图片 {img_path}")
                     continue # 跳过不存在的图片
 
                 img = Image.open(img_path)
@@ -217,7 +219,7 @@ class ArknightsApp:
                 photo_img = ImageTk.PhotoImage(img_resized)
                 self.images[str(i)] = photo_img
             except Exception as e:
-                print(f"加载或处理图片 {i} 时出错: {e}")
+                logger.exception(f"加载或处理图片 {i} 时出错: {e}")
 
     def load_model(self):
         """加载预训练的PyTorch模型"""
@@ -238,7 +240,7 @@ class ArknightsApp:
                 else:
                      raise FileNotFoundError(f"未找到模型文件 '{model_path}' 或 '{alt_model_path}'")
 
-            print(f"正在从 {model_path} 加载模型到 {self.device}...")
+            logger.info(f"正在从 {model_path} 加载模型到 {self.device}...")
             # 直接加载完整模型对象，这时需要 UnitAwareTransformer 类定义可用
             try:
                model = torch.load(model_path, map_location=self.device, weights_only=False)
@@ -251,7 +253,7 @@ class ArknightsApp:
                  # 如果加载的不是预期的类实例，可能是状态字典或其他东西
                  # 尝试处理状态字典的情况（如果模型保存的是state_dict）
                  if isinstance(model, dict) and 'model_state_dict' in model:
-                      print("检测到加载的是状态字典，尝试创建模型实例并加载...")
+                      logger.info("检测到加载的是状态字典，尝试创建模型实例并加载...")
                       # 这里需要能实例化 UnitAwareTransformer，需要知道它的初始化参数
                       # 例如: model_instance = UnitAwareTransformer(param1, param2, ...)
                       # 如果不知道参数，就无法完成加载
@@ -268,13 +270,13 @@ class ArknightsApp:
 
 
             self.model.eval() # 设置为评估模式
-            print("模型加载成功。")
+            logger.info("模型加载成功。")
             self.model_loaded_successfully = True # 设置成功标志
 
         # --- 更精细的错误处理 ---
         except FileNotFoundError as e:
             error_msg = f"模型文件未找到: {str(e)}\n请确认模型文件存在于 'models' 目录下或其父目录中，并且已经训练。"
-            print(error_msg) # 打印到控制台
+            logger.error(error_msg) # 打印到控制台
             # 不在这里关闭窗口，让 __init__ 返回后检查标志位
         except AttributeError as e:
              # 特别处理找不到类定义的错误
@@ -288,13 +290,13 @@ class ArknightsApp:
         except ImportError as e:
              # 处理自定义的 ImportError 或类未导入的情况
              error_msg = f"模型加载失败: {str(e)}"
-             print(error_msg)
+             logger.error(error_msg)
         except NotImplementedError as e: # 处理状态字典加载问题
              error_msg = f"模型加载失败: {str(e)}"
-             print(error_msg)
+             logger.error(error_msg)
         except TypeError as e: # 处理类型不匹配
              error_msg = f"模型加载失败: {str(e)}"
-             print(error_msg)
+             logger.error(error_msg)
         except Exception as e:
             # 捕获其他可能的错误 (例如 pickle 错误, RuntimeError)
             error_msg = f"模型加载时发生未知错误: {str(e)}"
@@ -302,7 +304,7 @@ class ArknightsApp:
                 error_msg += "\n\n提示：可能是模型结构与加载的模型文件不匹配。请尝试重新训练模型。"
             elif "_pickle.UnpicklingError" in str(e) or "ModuleNotFoundError" in str(e):
                  error_msg += "\n\n提示：模型文件可能已损坏，或缺少必要的代码定义。请尝试重新训练或检查环境。"
-            print(error_msg)
+            logger.error(error_msg)
             import traceback
             traceback.print_exc()
         # 不在此处调用 self.root.destroy()
@@ -489,7 +491,7 @@ class ArknightsApp:
                     if len(parts) >= 2 and parts[1] == "device":
                         self.connected_devices.append(parts[0])
         except Exception as e:
-            print(f"获取设备列表出错: {e}")
+            logger.exception(f"获取设备列表出错: {e}")
 
     # --- 历史面板控制 ---
     def toggle_history_panel(self):
@@ -511,7 +513,7 @@ class ArknightsApp:
 
     def render_history(self, parent_frame):
 
-        print("开始渲染历史对局...")
+        logger.info("开始渲染历史对局...")
         try:
             # 调用 HistoryMatch 计算相似度等
             self.history_match.render_similar_matches(self.left_monsters, self.right_monsters)
@@ -553,19 +555,19 @@ class ArknightsApp:
 
             parent_frame.after(10, lambda: self._render_batch(batch_size=5))
 
-            print("历史对局渲染准备就绪。")
+            logger.info("历史对局渲染准备就绪。")
 
         except AttributeError as e:
              if "'HistoryMatch' object has no attribute" in str(e):
-                 print(f"[渲染错题本失败] 缺少必要的属性: {e}. 请检查 HistoryMatch 类的实现。")
+                 logger.error(f"[渲染错题本失败] 缺少必要的属性: {e}. 请检查 HistoryMatch 类的实现。")
                  tk.Label(parent_frame, text="无法加载历史数据(属性缺失)。", fg="red", bg="white").pack(pady=10)
              else:
-                print(f"[渲染错题本失败] 属性错误: {e}")
+                logger.error(f"[渲染错题本失败] 属性错误: {e}")
                 import traceback
                 traceback.print_exc()
                 tk.Label(parent_frame, text=f"渲染时发生属性错误: {e}", fg="red", bg="white").pack(pady=10)
         except Exception as e:
-            print(f"[渲染错题本失败] 发生未知错误: {e}")
+            logger.error(f"[渲染错题本失败] 发生未知错误: {e}")
             import traceback
             traceback.print_exc()
             tk.Label(parent_frame, text=f"渲染历史数据时出错: {e}", fg="red", bg="white").pack(pady=10)
@@ -577,12 +579,12 @@ class ArknightsApp:
         parent = self._history_parent
         history_match = self.history_match # 引用实例
 
-        print(f"渲染批次: {start} 到 {end-1}")
+        logger.info(f"渲染批次: {start} 到 {end-1}")
 
         if not hasattr(history_match, 'past_left') or \
            not hasattr(history_match, 'past_right') or \
            not hasattr(history_match, 'labels'):
-            print("历史数据未完全加载，停止渲染。")
+            logger.warning("历史数据未完全加载，停止渲染。")
             tk.Label(parent, text="历史数据加载不完整。", fg="orange", bg="white").pack()
             parent.update_idletasks()
             self.history_canvas.configure(scrollregion=self.history_canvas.bbox("all"))
@@ -605,7 +607,7 @@ class ArknightsApp:
                  is_right_win = (actual_winner_label == 'R')
 
             except IndexError:
-                 print(f"警告: 索引 {data_idx} 超出历史数据范围，跳过此条记录。")
+                 logger.warning(f"警告: 索引 {data_idx} 超出历史数据范围，跳过此条记录。")
                  continue
 
             original_row_num = data_idx + 2
@@ -675,7 +677,7 @@ class ArknightsApp:
         if end < len(self._top20_indices):
             parent.after(75, lambda: self._render_batch(batch_size))
         else:
-            print("所有历史记录渲染完成。")
+            logger.info("所有历史记录渲染完成。")
             done_label = tk.Label(parent, text="--- Top 20 显示完毕 ---", font=("Helvetica", 9, "italic"), fg="grey", bg="white")
             done_label.pack(pady=10)
             parent.update_idletasks()
@@ -693,12 +695,12 @@ class ArknightsApp:
                 entry.delete(0, tk.END)
                 entry.config(bg="white") # 重置背景色为白色
         self.result_label.config(text="预测结果: ", fg="black", font=("Helvetica", 14, "bold")) # 重置结果标签
-        print("输入框已清空。")
+        logger.info("输入框已清空。")
 
     def fill_data_correct(self):
 
         result_to_fill = 'R' if self.current_prediction > 0.5 else 'L'
-        print(f"填写数据 (符合预测): 预测值 {self.current_prediction:.3f}, 记录为 {result_to_fill}")
+        logger.info(f"填写数据 (符合预测): 预测值 {self.current_prediction:.3f}, 记录为 {result_to_fill}")
         self.fill_data(result_to_fill)
         self.total_fill_count += 1
         self.update_statistics()
@@ -706,7 +708,7 @@ class ArknightsApp:
     def fill_data_incorrect(self):
 
         result_to_fill = 'L' if self.current_prediction > 0.5 else 'R'
-        print(f"填写数据 (不符预测): 预测值 {self.current_prediction:.3f}, 记录为 {result_to_fill}")
+        logger.info(f"填写数据 (不符预测): 预测值 {self.current_prediction:.3f}, 记录为 {result_to_fill}")
         self.fill_data(result_to_fill)
         self.total_fill_count += 1
         self.incorrect_fill_count += 1
@@ -743,11 +745,11 @@ class ArknightsApp:
                              cv2.imwrite(image_path, self.current_image)
                              # print(f"调试图片已保存: {image_path}") # 减少输出
                         else:
-                             print(f"警告: 尝试保存空的调试图片 {self.current_image_name}")
+                             logger.warning(f"警告: 尝试保存空的调试图片 {self.current_image_name}")
                         self.current_image = None
                         self.current_image_name = ""
                     except Exception as e:
-                        print(f"保存调试图片时出错: {e}")
+                        logger.error(f"保存调试图片时出错: {e}")
             else:
                  # 保持列数一致
                  data_row.append("")
@@ -759,10 +761,10 @@ class ArknightsApp:
                 writer = csv.writer(file)
                 writer.writerow(data_row)
         except IOError as e:
-            print(f"写入 CSV 文件时出错: {e}")
+            logger.error(f"写入 CSV 文件时出错: {e}")
             messagebox.showerror("错误", f"无法写入数据到 {csv_file_path}\n请检查文件权限或磁盘空间。")
         except Exception as e:
-            print(f"处理或写入数据时发生未知错误: {e}")
+            logger.error(f"处理或写入数据时发生未知错误: {e}")
             messagebox.showerror("错误", f"保存数据时发生错误: {e}")
 
     # --- 模型预测 ---
@@ -796,7 +798,7 @@ class ArknightsApp:
                 prediction = output.item()
 
             if np.isnan(prediction) or np.isinf(prediction):
-                print("警告: 模型预测结果包含 NaN 或 Inf，返回默认值 0.5")
+                logger.warning("警告: 模型预测结果包含 NaN 或 Inf，返回默认值 0.5")
                 prediction = 0.5
 
             prediction = max(0.0, min(1.0, prediction))
@@ -804,18 +806,18 @@ class ArknightsApp:
             return prediction
 
         except ValueError as e:
-             print(f"处理输入数据时出错: {e}")
+             logger.error(f"处理输入数据时出错: {e}")
              messagebox.showerror("错误", "输入无效，请输入有效的非负整数。")
              return 0.5
         except RuntimeError as e:
             error_msg = f"模型推理时发生运行时错误: {e}"
             if "size mismatch" in str(e):
                 error_msg += "\n\n错误提示：输入/模型维度不匹配。\n请尝试删除旧模型并重新训练。"
-            print(error_msg)
+            logger.error(error_msg)
             messagebox.showerror("模型错误", error_msg)
             return 0.5
         except Exception as e:
-            print(f"预测过程中发生未知错误: {e}")
+            logger.error(f"预测过程中发生未知错误: {e}")
             import traceback
             traceback.print_exc()
             messagebox.showerror("错误", f"预测时发生意外错误: {str(e)}")
@@ -853,13 +855,13 @@ class ArknightsApp:
 
     def predict(self):
 
-        print("执行预测...")
+        logger.info("执行预测...")
         self.current_prediction = self.get_prediction()
-        print(f"模型预测右方胜率: {self.current_prediction:.4f}")
+        logger.info(f"模型预测右方胜率: {self.current_prediction:.4f}")
         self.predictText(self.current_prediction)
 
         if self.history_visible:
-            print("历史面板可见，准备更新...")
+            logger.info("历史面板可见，准备更新...")
             for widget in self.history_frame.winfo_children():
                 widget.destroy()
             self.root.after(50, lambda: self.render_history(self.history_frame))
@@ -870,12 +872,12 @@ class ArknightsApp:
         if self.auto_fetch_running:
             screenshot = loadData.capture_screenshot()
             if screenshot is None:
-                print("错误：自动模式下获取截图失败。")
+                logger.error("错误：自动模式下获取截图失败。")
                 return
         elif self.no_region:
-            print("未定义识别区域，尝试获取截图...")
+            logger.warning("未定义识别区域，尝试获取截图...")
             if self.first_recognize:
-                print("首次识别，尝试连接 ADB 并设置默认 ROI...")
+                logger.info("首次识别，尝试连接 ADB 并设置默认 ROI...")
                 try:
                     if loadData.screen_width == 0 or loadData.screen_height == 0:
                         loadData.initialize_load_data()
@@ -887,7 +889,7 @@ class ArknightsApp:
                         (int(default_x1_ratio * loadData.screen_width), int(default_y1_ratio * loadData.screen_height)),
                         (int(default_x2_ratio * loadData.screen_width), int(default_y2_ratio * loadData.screen_height))
                     ]
-                    print(f"设置默认 ROI: {self.main_roi}")
+                    logger.info(f"设置默认 ROI: {self.main_roi}")
 
                     adb_path = loadData.adb_path
                     device_serial = loadData.get_device_serial()
@@ -895,32 +897,32 @@ class ArknightsApp:
                          connect_command = f'"{adb_path}" connect {device_serial}'
                          result = subprocess.run(connect_command, shell=True, capture_output=True, text=True, timeout=10)
                          if result.returncode != 0:
-                              print(f"警告: ADB 连接命令可能失败 (返回码 {result.returncode}): {result.stderr.strip()}")
+                              logger.warning(f"警告: ADB 连接命令可能失败 (返回码 {result.returncode}): {result.stderr.strip()}")
 
 
                     self.first_recognize = False
                     self.no_region = False
 
                 except Exception as e:
-                    print(f"首次识别初始化失败: {e}")
+                    logger.error(f"首次识别初始化失败: {e}")
                     messagebox.showerror("初始化错误", f"首次识别设置默认区域或连接ADB时出错: {e}\n请尝试手动选择范围或检查ADB设置。")
                     return
 
             screenshot = loadData.capture_screenshot()
             if screenshot is None:
-                 print("错误：获取截图失败。")
+                 logger.error("错误：获取截图失败。")
                  return
         elif self.main_roi:
              screenshot = loadData.capture_screenshot()
              if screenshot is None:
-                 print("错误：获取截图失败。")
+                 logger.error("错误：获取截图失败。")
                  return
         else:
-              print("错误：无法确定识别方式。")
+              logger.error("错误：无法确定识别方式。")
               return
 
         if self.main_roi is None:
-             print("错误：识别区域 (ROI) 未定义。")
+             logger.error("错误：识别区域 (ROI) 未定义。")
              return
 
         # print(f"调用 recognize.process_regions 进行识别...")
@@ -930,9 +932,9 @@ class ArknightsApp:
         processed_monster_ids_for_debug = []
 
         if not results:
-            print("识别未返回任何结果。")
+            logger.warning("识别未返回任何结果。")
         else:
-            print(f"识别结果: {results}")
+            logger.info(f"识别结果: {results}")
             for res in results:
                 region_id = res.get('region_id', -1)
                 matched_id = res.get('matched_id')
@@ -976,7 +978,7 @@ class ArknightsApp:
                 roi_image = screenshot[roi_y1:roi_y2, roi_x1:roi_x2]
 
                 if roi_image.size == 0:
-                     print("警告：截取的 ROI 区域图像为空。")
+                     logger.warning("警告：截取的 ROI 区域图像为空。")
                 else:
                     timestamp = int(time.time())
                     ids_str = "_".join(map(str, sorted(list(set(processed_monster_ids_for_debug)))))
@@ -994,7 +996,7 @@ class ArknightsApp:
                     # print(f"调试截图已暂存: {self.current_image_name}")
 
             except Exception as e:
-                print(f"保存调试用 ROI 截图时出错: {e}")
+                logger.error(f"保存调试用 ROI 截图时出错: {e}")
                 self.current_image = None
                 self.current_image_name = ""
 
@@ -1003,18 +1005,18 @@ class ArknightsApp:
 
     def reselect_roi(self):
 
-        print("准备让用户重新选择识别区域 (ROI)...")
+        logger.info("准备让用户重新选择识别区域 (ROI)...")
         try:
              selected_roi = recognize.select_roi()
              if selected_roi:
                  self.main_roi = selected_roi
                  self.no_region = False
-                 print(f"用户已选择新的识别区域: {self.main_roi}")
+                 logger.info(f"用户已选择新的识别区域: {self.main_roi}")
                  messagebox.showinfo("选择范围", f"已选择新的识别区域:\n左上角: {self.main_roi[0]}\n右下角: {self.main_roi[1]}")
              else:
-                 print("用户取消选择或选择失败。")
+                 logger.warning("用户取消选择或选择失败。")
         except Exception as e:
-             print(f"选择 ROI 时发生错误: {e}")
+             logger.error(f"选择 ROI 时发生错误: {e}")
              messagebox.showerror("错误", f"选择识别范围时出错: {e}")
 
     # --- 训练 (占位) ---
@@ -1027,21 +1029,21 @@ class ArknightsApp:
     def train_model(self):
 
         try:
-            print("正在启动 train.py 脚本...")
+            logger.info("正在启动 train.py 脚本...")
             result = subprocess.run(["python", "train.py"], check=True, capture_output=True, text=True, encoding='utf-8') # 指定编码
-            print("train.py 脚本执行完成。")
-            print("训练脚本输出:\n", result.stdout)
+            logger.info("train.py 脚本执行完成。")
+            logger.info("训练脚本输出:\n", result.stdout)
             self.root.after(0, lambda: messagebox.showinfo("训练完成", "模型训练已完成。\n请考虑重新启动程序或添加“重新加载模型”功能。"))
         except FileNotFoundError:
-             print("错误: 找不到 'python' 命令或 'train.py' 文件。")
+             logger.error("错误: 找不到 'python' 命令或 'train.py' 文件。")
              self.root.after(0, lambda: messagebox.showerror("错误", "无法启动训练：找不到 Python 或 train.py。"))
         except subprocess.CalledProcessError as e:
-            print(f"训练脚本 train.py 执行失败，返回码: {e.returncode}")
-            print("错误输出:\n", e.stderr)
+            logger.error(f"训练脚本 train.py 执行失败，返回码: {e.returncode}")
+            logger.error("错误输出:\n", e.stderr)
             error_message = f"训练脚本执行失败。\n错误信息:\n{e.stderr[:500]}..."
             self.root.after(0, lambda: messagebox.showerror("训练失败", error_message))
         except Exception as e:
-            print(f"启动训练时发生未知错误: {e}")
+            logger.error(f"启动训练时发生未知错误: {e}")
             self.root.after(0, lambda: messagebox.showerror("错误", f"启动训练时发生意外错误: {e}"))
 
 
@@ -1064,23 +1066,23 @@ class ArknightsApp:
 
             with open("log.txt", "a", encoding='utf-8') as log_file:
                 log_file.write(stats_text)
-            print("统计信息已保存到 log.txt")
+            logger.info("统计信息已保存到 log.txt")
 
         except Exception as e:
-            print(f"保存统计日志时出错: {e}")
+            logger.error(f"保存统计日志时出错: {e}")
 
 
     def toggle_auto_fetch(self):
         if not self.auto_fetch_running:
             # 在启动自动获取前，检查 ROI 是否已定义
             if self.main_roi is None:
-                print("自动获取启动检查：ROI 未定义，尝试进行首次初始化...")
+                logger.info("自动获取启动检查：ROI 未定义，尝试进行首次初始化...")
                 try:
                     # 尝试执行首次识别时的默认 ROI 设置逻辑
                     # 确保 loadData 已尝试获取屏幕尺寸
                     if loadData.screen_width == 0 or loadData.screen_height == 0:
                         # 如果还没有尺寸信息，尝试获取一次
-                        print("尝试获取屏幕尺寸...")
+                        logger.info("尝试获取屏幕尺寸...")
                         loadData.get_screen_dimensions() # 假设 loadData 有此方法或类似逻辑
                         if loadData.screen_width == 0 or loadData.screen_height == 0:
                             raise ValueError("无法获取屏幕尺寸，无法设置默认ROI。")
@@ -1094,7 +1096,7 @@ class ArknightsApp:
                     ]
                     self.no_region = False # 标记 ROI 已设置
                     self.first_recognize = False # 标记已进行过首次尝试
-                    print(f"自动获取启动时成功设置默认 ROI: {self.main_roi}")
+                    logger.info(f"自动获取启动时成功设置默认 ROI: {self.main_roi}")
 
                     # 可选：尝试连接 ADB (如果 recognize 中有此逻辑且重要)
                     adb_path = loadData.adb_path
@@ -1104,7 +1106,7 @@ class ArknightsApp:
                          subprocess.run(connect_command, shell=True, capture_output=True, text=True, timeout=5) # 缩短超时
 
                 except Exception as e:
-                    print(f"自动获取启动时初始化默认 ROI 失败: {e}")
+                    logger.error(f"自动获取启动时初始化默认 ROI 失败: {e}")
                     messagebox.showerror("启动失败", f"无法自动设置识别区域(ROI): {e}\n请先手动点击一次“识别并预测”或“选择范围”。")
                     # 初始化失败，不启动自动获取
                     return # 退出 toggle_auto_fetch 方法
@@ -1124,7 +1126,7 @@ class ArknightsApp:
             try:
                 duration_mins = float(self.duration_entry.get())
                 self.training_duration = duration_mins * 60 if duration_mins > 0 else -1
-                print(f"设置自动运行时长: {'无限' if self.training_duration == -1 else f'{duration_mins} 分钟'}")
+                logger.info(f"设置自动运行时长: {'无限' if self.training_duration == -1 else f'{duration_mins} 分钟'}")
             except ValueError:
                 messagebox.showerror("错误", "无效的时长输入。自动运行时长将设为无限。")
                 self.training_duration = -1
@@ -1132,7 +1134,7 @@ class ArknightsApp:
                 self.duration_entry.insert(0, "-1")
 
             # --- 禁用相关按钮 ---
-            print("自动模式启动，禁用手动操作按钮...")
+            logger.info("自动模式启动，禁用手动操作按钮...")
             self.predict_button.config(state=tk.DISABLED)
             self.recognize_button.config(state=tk.DISABLED)
             # --- 禁用手动填写按钮 ---
@@ -1140,7 +1142,6 @@ class ArknightsApp:
             self.fill_data_incorrect_button.config(state=tk.DISABLED)
             # --- 禁用其他设置按钮 ---
             self.reselect_button.config(state=tk.DISABLED)
-            self.serial_button.config(state=tk.DISABLED)
             self.mode_menu.config(state=tk.DISABLED)
             self.invest_checkbox.config(state=tk.DISABLED) # 自动模式下也禁用观望选择
             self.duration_entry.config(state=tk.DISABLED)
@@ -1148,32 +1149,29 @@ class ArknightsApp:
 
             self.auto_fetch_thread = threading.Thread(target=self.auto_fetch_loop, daemon=True)
             self.auto_fetch_thread.start()
-            print("自动斗蛐蛐线程已启动。按 ESC 键可停止。")
+            logger.info("自动斗蛐蛐线程已启动。按 ESC 键可停止。")
 
         else:
             self.auto_fetch_running = False # 先设置标志位
             # UI 更新和日志记录移到 stop_auto_fetch_ui_update
-            print("请求停止自动斗蛐蛐...")
+            logger.info("请求停止自动斗蛐蛐...")
             # 不直接在这里更新 UI，由 stop_auto_fetch_ui_update 统一处理
 
-
     def auto_fetch_loop(self):
-        print("自动获取循环开始...")
-        normal_interval = 0.5  # 正常间隔
-        fast_interval = 0.08  # 战斗结束时快速间隔 (80ms)
-        fast_poll_timeout = 60  # 快速轮询最多持续时间，单位秒
+        logger.info("自动获取循环开始...")
+        normal_interval = 0.5
+        fast_interval = 0.08
+        fast_poll_timeout = 60
         while self.auto_fetch_running:
             loop_start_time = time.time()
-            current_interval = normal_interval  # 默认使用正常间隔
-            # 如果处于战斗状态，准备快速轮询
+            current_interval = normal_interval
             if self.is_in_battle:
                 current_interval = fast_interval
                 if self.fast_poll_start_time is None:
                     self.fast_poll_start_time = loop_start_time
-                # 检查快速轮询是否超时
                 elif time.time() - self.fast_poll_start_time > fast_poll_timeout:
-                    print(f"警告：快速轮询超过 {fast_poll_timeout} 秒未检测到结算，恢复正常轮询。")
-                    self.is_in_battle = False  # 强制退出战斗状态
+                    logger.warning(f"快速轮询超过 {fast_poll_timeout} 秒未检测到结算，恢复正常轮询。")
+                    self.is_in_battle = False
                     self.fast_poll_start_time = None
                     current_interval = normal_interval
             try:
@@ -1182,70 +1180,58 @@ class ArknightsApp:
                 if self.training_duration != -1:
                     elapsed_time = time.time() - self.start_time
                     if elapsed_time >= self.training_duration:
-                        print(f"达到预设运行时长 ({self.training_duration / 60:.1f} 分钟)，自动停止。")
-                        self.auto_fetch_running = False # 设置标志位
+                        logger.info(f"达到预设运行时长 ({self.training_duration / 60:.1f} 分钟)，自动停止。")
+                        self.auto_fetch_running = False
                         self.root.after(0, lambda: self.stop_auto_fetch_ui_update("达到时长"))
                         break
 
-
             except Exception as e:
-                print(f"自动斗蛐蛐循环中发生错误: {e}")
+                logger.error(f"自动斗蛐蛐循环中发生错误: {e}")
                 import traceback
                 traceback.print_exc()
 
-                print("发生错误，暂停5秒后继续...")
-                # 暂停期间也要能响应停止信号
-                for _ in range(50): # 分成小段sleep，检查标志位
-                     if not self.auto_fetch_running: break
-                     time.sleep(0.1)
-                if not self.auto_fetch_running: break # 如果在暂停期间停止了
-
-            # 控制循环频率 (使用动态计算的 current_interval)
-            loop_duration = time.time() - loop_start_time
-            sleep_time = max(0, current_interval - loop_duration)
-
-            # 分段 sleep 以便能更快响应停止信号
-            sleep_end_time = time.time() + sleep_time
-            while time.time() < sleep_end_time:
-                if not self.auto_fetch_running: break
-                time.sleep(0.05)  # 使用固定的短检查间隔
-
-            if not self.auto_fetch_running:
-                    print("检测到停止标志，退出循环。")
+                logger.warning("发生错误，暂停5秒后继续...")
+                for _ in range(50):
+                    if not self.auto_fetch_running:
+                        break
+                    time.sleep(0.1)
+                if not self.auto_fetch_running:
                     break
 
-        print("自动获取循环结束。")
-        self.is_in_battle = False  # 确保退出时重置状态
+            loop_duration = time.time() - loop_start_time
+            sleep_time = max(0, current_interval - loop_duration)
+            sleep_end_time = time.time() + sleep_time
+            while time.time() < sleep_end_time:
+                if not self.auto_fetch_running:
+                    break
+                time.sleep(0.05)
+
+            if not self.auto_fetch_running:
+                logger.info("检测到停止标志，退出循环。")
+                break
+
+        logger.info("自动获取循环结束。")
+        self.is_in_battle = False
         self.fast_poll_start_time = None
         self.root.after(0, lambda: self.stop_auto_fetch_ui_update("循环结束"))
 
-
     def stop_auto_fetch_ui_update(self, reason="未知"):
-        """在主线程中更新UI元素以反映自动斗蛐蛐已停止"""
-        # 检查是否真的需要停止UI（防止重复调用）
-        if self.auto_fetch_button['text'] == "停止自动斗蛐蛐": # 只有在运行时才执行停止操作
-            self.auto_fetch_button.config(text="自动斗蛐蛐", relief=tk.RAISED, bg="#AED581") # 恢复原始文字和颜色
-            print(f"自动斗蛐蛐已停止 ({reason})。")
-            self.update_statistics() # 更新最终统计
+        if self.auto_fetch_button['text'] == "停止自动斗蛐蛐":
+            self.auto_fetch_button.config(text="自动斗蛐蛐", relief=tk.RAISED, bg="#AED581")
+            logger.info(f"自动斗蛐蛐已停止 ({reason})。")
+            self.update_statistics()
             self.save_statistics_to_log()
-
-            # --- 重新启用相关按钮 ---
-            print("自动模式停止，启用手动操作按钮...")
+            logger.info("自动模式停止，启用手动操作按钮...")
             self.predict_button.config(state=tk.NORMAL)
             self.recognize_button.config(state=tk.NORMAL)
-            # --- 启用手动填写按钮 ---
             self.fill_data_correct_button.config(state=tk.NORMAL)
             self.fill_data_incorrect_button.config(state=tk.NORMAL)
-            # --- 启用其他设置按钮 ---
             self.reselect_button.config(state=tk.NORMAL)
-            self.serial_button.config(state=tk.NORMAL)
             self.mode_menu.config(state=tk.NORMAL)
-            # 根据当前模式决定是否启用观望复选框
-            self._update_invest_option_on_mode_change() # 调用这个函数来正确设置复选框状态
+            self._update_invest_option_on_mode_change()
             self.duration_entry.config(state=tk.NORMAL)
-            self.reset_button.config(state=tk.NORMAL) # 清空按钮也恢复
-
-            print("相关控件已重新启用。")
+            self.reset_button.config(state=tk.NORMAL)
+            logger.info("相关控件已重新启用。")
 
     def auto_fetch_data(self):
         relative_points = {
@@ -1258,8 +1244,9 @@ class ArknightsApp:
 
         screenshot = loadData.capture_screenshot()
         if screenshot is None:
-            print("错误：截图失败"); time.sleep(2); return
-
+            logger.error("截图失败")
+            time.sleep(2)
+            return
 
         match_results = loadData.match_images(screenshot, loadData.process_templates_info)
         match_results = sorted(match_results, key=lambda x: x[1], reverse=True)
@@ -1267,121 +1254,124 @@ class ArknightsApp:
         match_threshold = 0.6 # 事件匹配阈值，用于判断当前处于哪个页面
 
         if best_match_score < match_threshold:
-            print(f"最高匹配分数 {best_match_score:.3f} 低于阈值 {match_threshold}，认为未匹配到明确事件，跳过。")
+            logger.warning(f"最高匹配分数 {best_match_score:.3f} 低于阈值 {match_threshold}，认为未匹配到明确事件，跳过。")
             time.sleep(1)
             return
         if best_match_idx in [6, 61, 7, 71, 14]:
             if not self.is_in_battle:
-                print("检测到进入战斗状态，准备快速轮询监测结算...")
+                logger.info("检测到进入战斗状态，准备快速轮询监测结算...")
                 self.is_in_battle = True
                 self.fast_poll_start_time = None  # 重置超时计时器
         # 如果检测到结算 (8-11) 或者其他非战斗状态，则退出战斗状态
         elif best_match_idx not in [6, 61, 7, 71, 14]:
             if self.is_in_battle:
-                print("检测到非战斗状态，恢复正常轮询。")
+                logger.info("检测到非战斗状态，恢复正常轮询。")
                 self.is_in_battle = False
                 self.fast_poll_start_time = None
         try:
-            if best_match_idx == 0: # 加入赛事
-                print("状态: 加入赛事 -> 点击")
-                loadData.click(relative_points["right_all_join_start"]); time.sleep(1.5)
-            elif best_match_idx == 1: # 主界面
-                print("状态: 主界面 -> 选择模式")
+            if best_match_idx == 0:
+                logger.info("状态: 加入赛事 -> 点击")
+                loadData.click(relative_points["right_all_join_start"])
+                time.sleep(1.5)
+            elif best_match_idx == 1:
+                logger.info("状态: 主界面 -> 选择模式")
                 if self.game_mode.get() == "30人":
-                    print("模式: 30人 -> 点击")
-                    loadData.click(relative_points["right_all_join_start"]); time.sleep(3)
+                    logger.info("模式: 30人 -> 点击")
+                    loadData.click(relative_points["right_all_join_start"])
+                    time.sleep(3)
                 else:
-                    print("模式: 单人 -> 点击")
-                    loadData.click(relative_points["right_gift_entertain"]); time.sleep(3)
-            elif best_match_idx == 2: # 开始游戏
-                print("状态: 开始游戏 -> 点击")
-                loadData.click(relative_points["right_all_join_start"]); time.sleep(3)
-            elif best_match_idx in [3, 4, 5, 15]: # 投资/观望
-                 print(f"状态: 投资/观望 ({best_match_idx})")
-                 time.sleep(0.5)
-                 self.root.after(0, self.reset_entries)
-                 time.sleep(0.2)
-                 if best_match_idx == 15:
-                     print("当前已淘汰，只进行预测")
-                 print("执行识别预测...")
-                 self.recognize() # 这个调用是跨线程的UI操作，有风险
-                 time.sleep(0.5)
+                    logger.info("模式: 单人 -> 点击")
+                    loadData.click(relative_points["right_gift_entertain"])
+                    time.sleep(3)
+            elif best_match_idx == 2:
+                logger.info("状态: 开始游戏 -> 点击")
+                loadData.click(relative_points["right_all_join_start"])
+                time.sleep(3)
+            elif best_match_idx in [3, 4, 5, 15]:
+                logger.info(f"状态: 投资/观望 ({best_match_idx})")
+                time.sleep(0.5)
+                self.root.after(0, self.reset_entries)
+                time.sleep(0.2)
+                if best_match_idx == 15:
+                    logger.info("当前已淘汰，只进行预测")
+                logger.info("执行识别预测...")
+                self.recognize()
+                time.sleep(0.5)
 
-                 if not self.is_invest.get() and best_match_idx != 15:
-                     print("执行投资...")
-                     if self.current_prediction > 0.5: # 投右
-                         print("投右 -> 点击")
-                         loadData.click(relative_points["right_gift_entertain"])
-                     else: # 投左
-                         print("投左 -> 点击")
-                         loadData.click(relative_points["left_gift"])
-                     print("等待20s..."); time.sleep(20)
-                 elif best_match_idx == 15:
-                     print("当前已淘汰，只进行预测")
-                 else:
-                     print("执行观望 -> 点击")
-                     loadData.click(relative_points["watch_this_round"]); time.sleep(5)
+                if not self.is_invest.get() and best_match_idx != 15:
+                    logger.info("执行投资...")
+                    if self.current_prediction > 0.5:
+                        logger.info("投右 -> 点击")
+                        loadData.click(relative_points["right_gift_entertain"])
+                    else:
+                        logger.info("投左 -> 点击")
+                        loadData.click(relative_points["left_gift"])
+                    logger.info("等待20s...")
+                    time.sleep(20)
+                elif best_match_idx == 15:
+                    logger.info("当前已淘汰，只进行预测")
+                else:
+                    logger.info("执行观望 -> 点击")
+                    loadData.click(relative_points["watch_this_round"])
+                    time.sleep(5)
             elif best_match_idx in [8, 9, 10, 11]:
-                     print(
-                         f"状态: 结算 (匹配索引 {best_match_idx}, 分数 {best_match_score:.3f}) -> 进入处理流程")  # 更明确的进入提示
-                     time.sleep(0.1)
+                logger.info(f"状态: 结算 (匹配索引 {best_match_idx}, 分数 {best_match_score:.3f}) -> 进入处理流程")
+                time.sleep(0.1)
 
-                     if best_match_idx  == 8 or best_match_idx == 11:
-                         is_left_winner  = False
-                     else:
-                         is_left_winner = True
+                if best_match_idx in [8, 11]:
+                    is_left_winner = False
+                else:
+                    is_left_winner = True
 
-                     result_label = 'L' if is_left_winner else 'R'
-                     print(f"判定结果: {'左胜' if is_left_winner else '右胜'} -> 准备填写 {result_label}")
+                result_label = 'L' if is_left_winner else 'R'
+                logger.info(f"判定结果: {'左胜' if is_left_winner else '右胜'} -> 准备填写 {result_label}")
 
-                     prediction_was_wrong = False  # 假设预测没错
-                     if (is_left_winner and self.current_prediction > 0.5) or \
-                             (not is_left_winner and self.current_prediction <= 0.5):
-                         print(
-                             f"预测错误: 实际={'左胜' if is_left_winner else '右胜'}, 预测值={self.current_prediction:.3f} -> 计为错误")
-                         self.incorrect_fill_count += 1
-                         prediction_was_wrong = True
-                     else:
-                         print(
-                             f"预测正确: 实际={'左胜' if is_left_winner else '右胜'}, 预测值={self.current_prediction:.3f}")
+                prediction_was_wrong = False
+                if (is_left_winner and self.current_prediction > 0.5) or (
+                        not is_left_winner and self.current_prediction <= 0.5):
+                    logger.warning(
+                        f"预测错误: 实际={'左胜' if is_left_winner else '右胜'}, 预测胜率={self.current_prediction:.3f} -> 计为错误")
+                    self.incorrect_fill_count += 1
+                    prediction_was_wrong = True
+                else:
+                    logger.info(
+                        f"预测正确: 实际={'左胜' if is_left_winner else '右胜'}, 预测胜率={1-self.current_prediction:.3f}")
 
-                     self.fill_data(result_label)
-                     self.total_fill_count += 1
+                self.fill_data(result_label)
+                self.total_fill_count += 1
+                self.root.after(0, self.update_statistics)
 
-                     # 更新UI统计
-                     self.root.after(0, self.update_statistics)
-
-                     print("点击下一轮...")
-                     loadData.click(relative_points["right_all_join_start"])
-                     wait_after_fill = 8
-                     print(f"等待 {wait_after_fill} 秒...")
-                     # 分段 sleep 检查停止标志
-                     sleep_end = time.time() + wait_after_fill
-                     while time.time() < sleep_end:
-                         if not self.auto_fetch_running: break
-                         time.sleep(0.1)
-                     if not self.auto_fetch_running:
-                         self.is_in_battle = False
-                         self.fast_poll_start_time = None
-                         return
-                     self.is_in_battle = False
-                     self.fast_poll_start_time = None
-
+                logger.info("点击下一轮...")
+                loadData.click(relative_points["right_all_join_start"])
+                wait_after_fill = 8
+                logger.info(f"等待 {wait_after_fill} 秒...")
+                sleep_end = time.time() + wait_after_fill
+                while time.time() < sleep_end:
+                    if not self.auto_fetch_running:
+                        break
+                    time.sleep(0.1)
+                if not self.auto_fetch_running:
+                    self.is_in_battle = False
+                    self.fast_poll_start_time = None
+                    return
+                self.is_in_battle = False
+                self.fast_poll_start_time = None
             elif best_match_idx in [6, 7, 61, 71, 14]:
-                 print(f"状态: 战斗中-> 等待 ")
-                 if not self.is_in_battle:
-                     time.sleep(3)
-            elif best_match_idx in [12, 13]: # 返回主页
-                 print("状态: 返回主页 -> 点击")
-                 loadData.click(relative_points["right_all_join_start"]); time.sleep(3)
+                logger.info("状态: 战斗中 -> 等待")
+                if not self.is_in_battle:
+                    time.sleep(3)
+            elif best_match_idx in [12, 13]:
+                logger.info("状态: 返回主页 -> 点击")
+                loadData.click(relative_points["right_all_join_start"])
+                time.sleep(3)
             else:
-                 print(f"状态: 未处理模板 {best_match_idx} (分数 {best_match_score:.3f}) -> 等待")
-                 time.sleep(2)
+                logger.warning(f"状态: 未处理模板 {best_match_idx} (分数 {best_match_score:.3f}) -> 等待")
+                time.sleep(2)
         except KeyError as e:
-            print(f"错误: 无效的键 {e} 用于 relative_points。")
+            logger.error(f"错误: 无效的键 {e} 用于 relative_points。")
             time.sleep(2)
         except Exception as e:
-            print(f"处理状态 {best_match_idx} (分数 {best_match_score:.3f}) 时出错: {e}")
+            logger.error(f"处理状态 {best_match_idx} (分数 {best_match_score:.3f}) 时出错: {e}")
             import traceback
             traceback.print_exc()
             time.sleep(2)
@@ -1418,86 +1408,85 @@ class ArknightsApp:
              messagebox.showwarning("提示", "设备序列号不能为空。")
              return
 
-        print(f"请求更新设备序列号为: {new_serial}")
+        logger.info(f"请求更新设备序列号为: {new_serial}")
         try:
             loadData.set_device_serial(new_serial)
             messagebox.showinfo("提示", f"已尝试更新模拟器序列号为: {new_serial}\n请确保设备已通过ADB连接。")
         except Exception as e:
-            print(f"更新设备序列号时出错: {e}")
+            logger.error(f"更新设备序列号时出错: {e}")
             messagebox.showerror("错误", f"更新设备序列号时发生错误: {e}")
 
 
 if __name__ == "__main__":
-    root = None # 初始化为 None
+    root = None  # 初始化为 None
     app_instance = None
     try:
         root = tk.Tk()
-        root.withdraw() # 先隐藏默认的空白窗口
+        root.withdraw()  # 先隐藏默认的空白窗口
 
         # 设置 DPI 感知
         try:
-             from ctypes import windll
-             try:
-                 windll.shcore.SetProcessDpiAwareness(1)
-                 print("设置 DPI 感知 (模式 1)")
-             except AttributeError:
-                 windll.user32.SetProcessDPIAware()
-                 print("设置 DPI 感知 (旧模式)")
+            from ctypes import windll
+            try:
+                windll.shcore.SetProcessDpiAwareness(1)
+                logger.info("设置 DPI 感知 (模式 1)")
+            except AttributeError:
+                windll.user32.SetProcessDPIAware()
+                logger.info("设置 DPI 感知 (旧模式)")
         except Exception as e:
-             print(f"设置 DPI 感知失败: {e}")
+            logger.error(f"设置 DPI 感知失败: {e}")
 
         # 创建 App 实例 (会尝试加载模型)
         app_instance = ArknightsApp(root)
 
         # 检查模型是否加载成功，不成功则不显示窗口
         if not app_instance.model_loaded_successfully:
-             print("模型加载失败，程序退出。")
+            logger.error("模型加载失败，程序退出。")
         else:
-             # 模型加载成功，显示窗口
-             root.deiconify() # 显示主窗口
+            # 模型加载成功，显示窗口
+            root.deiconify()  # 显示主窗口
 
-             def on_esc_press(event=None):
-                 print("检测到 ESC 键...")
-                 # 确保 app_instance 存在且 auto_fetch_running 属性存在
-                 if app_instance and hasattr(app_instance, 'auto_fetch_running') and app_instance.auto_fetch_running:
-                      print("自动模式运行中，发送停止信号...")
-                      app_instance.auto_fetch_running = False # 设置标志位
-                      # UI更新将在循环结束时或 stop_auto_fetch_ui_update 中处理
-                 else:
-                      print("不在自动模式下或App未完全初始化。")
+            def on_esc_press(event=None):
+                logger.info("检测到 ESC 键...")
+                # 确保 app_instance 存在且 auto_fetch_running 属性存在
+                if app_instance and hasattr(app_instance, 'auto_fetch_running') and app_instance.auto_fetch_running:
+                    logger.info("自动模式运行中，发送停止信号...")
+                    app_instance.auto_fetch_running = False  # 设置标志位
+                    # UI更新将在循环结束时或 stop_auto_fetch_ui_update 中处理
+                else:
+                    logger.info("不在自动模式下或App未完全初始化。")
 
-             root.bind('<Escape>', on_esc_press)
-             print("ESC 键绑定成功，可在自动模式下按 ESC 停止。")
+            root.bind('<Escape>', on_esc_press)
+            logger.info("ESC 键绑定成功，可在自动模式下按 ESC 停止。")
 
-             # 进入主循环
-             root.mainloop()
+            # 进入主循环
+            root.mainloop()
 
     except tk.TclError as e:
-         # 捕获 Tkinter 相关的致命错误 (例如创建 root 失败)
-         print(f"Tkinter 初始化或运行期间发生致命错误: {e}")
-         # 尝试显示消息，但可能 Tkinter 已失效
-         try:
-              messagebox.showerror("界面错误", f"Tkinter 发生错误导致程序无法运行：\n{e}")
-         except Exception:
-              pass # 忽略显示错误本身的问题
+        # 捕获 Tkinter 相关的致命错误 (例如创建 root 失败)
+        logger.critical(f"Tkinter 初始化或运行期间发生致命错误: {e}")
+        # 尝试显示消息，但可能 Tkinter 已失效
+        try:
+            messagebox.showerror("界面错误", f"Tkinter 发生错误导致程序无法运行：\n{e}")
+        except Exception:
+            pass  # 忽略显示错误本身的问题
     except Exception as main_e:
-         # 捕获其他致命错误
-         print(f"应用程序启动或运行期间发生致命错误: {main_e}")
-         import traceback
-         traceback.print_exc()
-         try:
-              # 确保 root 存在才尝试显示 messagebox
-              if root and root.winfo_exists():
-                   messagebox.showerror("致命错误", f"应用程序发生无法处理的错误：\n{main_e}\n\n请查看控制台输出。")
-         except Exception:
-              pass
+        # 捕获其他致命错误
+        logger.critical(f"应用程序启动或运行期间发生致命错误: {main_e}")
+        import traceback
+        traceback.print_exc()
+        try:
+            # 确保 root 存在才尝试显示 messagebox
+            if root and root.winfo_exists():
+                messagebox.showerror("致命错误", f"应用程序发生无法处理的错误：\n{main_e}\n\n请查看控制台输出。")
+        except Exception:
+            pass
     finally:
-         # 确保程序退出时，如自动斗蛐蛐仍在运行，尝试停止它
-         # (虽然 daemon 线程理论上会随主线程退出，但显式停止更安全)
-         if app_instance and hasattr(app_instance, 'auto_fetch_running') and app_instance.auto_fetch_running:
-              print("程序退出，强制停止自动斗蛐蛐...")
-              app_instance.auto_fetch_running = False
-              # 可能需要保存最后的日志
-              app_instance.save_statistics_to_log()
+        # 确保程序退出时，如自动斗蛐蛐仍在运行，尝试停止它
+        if app_instance and hasattr(app_instance, 'auto_fetch_running') and app_instance.auto_fetch_running:
+            logger.info("程序退出，强制停止自动斗蛐蛐...")
+            app_instance.auto_fetch_running = False
+            # 可能需要保存最后的日志
+            app_instance.save_statistics_to_log()
 
-         print("应用程序关闭。")
+        logger.info("应用程序关闭。")

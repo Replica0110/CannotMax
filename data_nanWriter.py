@@ -3,6 +3,7 @@ import torch
 import numpy as np
 from tqdm import tqdm
 from train import UnitAwareTransformer
+from loguru import logger
 
 # 配置参数（需要与训练时一致）
 CONFIG = {
@@ -95,10 +96,11 @@ class SafetyChecker:
                         index=False
                     )
         
-        print(f"\n已保存干净数据至: {self.clean_csv_path}")
-        print("\n检查完成！发现异常的行：")
+        logger.info(f"\n已保存干净数据至: {self.clean_csv_path}")
+        if problematic_rows:
+            logger.warning(f"\n发现 {len(problematic_rows)} 个异常的行！")
         for row in problematic_rows:
-            print(f"行号 {row[0] if isinstance(row, tuple) else row}: ",
+            logger.warning(f"行号 {row[0] if isinstance(row, tuple) else row}: ",
                   row[1] if isinstance(row, tuple) else "输出包含NaN/Inf")
 
 if __name__ == "__main__":

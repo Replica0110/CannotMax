@@ -1,6 +1,6 @@
 import csv
 import os
-
+from loguru import logger
 
 def read_csv_data(filename):
     """读取CSV文件，自动检测编码并返回表头、数据行（去重后的集合）和成功的编码"""
@@ -24,7 +24,7 @@ def read_csv_data(filename):
 csv_files = [file for file in os.listdir('.') if file.endswith('.csv')]
 
 if not csv_files:
-    print("当前文件夹下没有找到CSV文件")
+    logger.error("当前文件夹下没有找到CSV文件")
     exit()
 
 merged_data = set()
@@ -37,11 +37,11 @@ for csv_file in csv_files:
         if header is None:
             header = current_header
         elif header != current_header:
-            print(f"警告：文件 {csv_file} 的表头与其他文件不一致，可能会导致数据不匹配")
+            logger.warning(f"警告：文件 {csv_file} 的表头与其他文件不一致，可能会导致数据不匹配")
         merged_data |= data
-        print(f"文件 {csv_file} 使用的编码是: {encoding}")
+        logger.info(f"文件 {csv_file} 使用的编码是: {encoding}")
     except ValueError as e:
-        print(f"错误: {e}")
+        logger.error(f"错误: {e}")
         exit()
 
 # 写入合并后的文件
@@ -51,4 +51,4 @@ with open('arknights.csv', 'w', newline='', encoding='utf-8') as f:
     for row in merged_data:
         writer.writerow(row)
 
-print(f"所有CSV文件合并完成，结果已保存到 arknights.csv")
+logger.info(f"所有CSV文件合并完成，结果已保存到 arknights.csv")

@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 from sklearn.metrics.pairwise import cosine_similarity
-
+from loguru import logger
 
 class HistoryMatch:
     """错题本数据集的读取和处理类"""
@@ -172,5 +172,5 @@ class HistoryMatch:
             self.swap = swap
             self.top20_idx = top20_idx
         except Exception as e:
-            print("[匹配错题本失败]", e)
+            logger.error("[匹配错题本失败]", e)
 
