@@ -8,8 +8,7 @@ from PIL import ImageGrab
 from rapidocr import RapidOCR
 import find_monster_zone
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+from loguru import logger
 
 rapidocr_eng = RapidOCR()
 
@@ -216,7 +215,7 @@ def find_best_match(target: cv2.typing.MatLike, ref_images: dict[int, cv2.typing
 
 def do_num_ocr(img: cv2.typing.MatLike):
     result = rapidocr_eng(img, use_det=False, use_cls=False, use_rec=True)
-    print(f"OCR: text: '{result.txts[0]}', score: {result.scores[0]}")
+    logger.info(f"OCR: text: '{result.txts[0]}', score: {result.scores[0]}")
     number = "".join([c for c in result.txts[0] if c.isdigit()])
     confidence = result.scores[0]
     return number, confidence
@@ -278,11 +277,11 @@ def process_regions(main_roi, screenshot: cv2.typing.MatLike | None = None):
 
             # 图像匹配
             matched_id, confidence = find_best_match(sub_roi, ref_images)
-            print(f"target: {idx} confidence: {confidence}")
+            logger.info(f"target: {idx} confidence: {confidence}")
             if matched_id != 0 and confidence < 0.5:
                 raise ValueError(f"模板匹配置信度过低: {confidence}")
         except Exception as e:
-            print(f"区域 {idx} 匹配失败: {str(e)}")
+            logger.error(f"区域 {idx} 匹配失败: {str(e)}")
             results.append({"region_id": idx, "error": str(e)})
             return results
 
@@ -330,7 +329,7 @@ def process_regions(main_roi, screenshot: cv2.typing.MatLike | None = None):
                 }
             )
         except Exception as e:
-            print(f"区域 {idx} OCR识别失败: {str(e)}")
+            logger.error(f"区域 {idx} OCR识别失败: {str(e)}")
             results.append(
                 {"region_id": idx, "matched_id": matched_id, "number": "N/A", "error": str(e)}
             )
@@ -370,16 +369,16 @@ def load_ref_images(ref_dir="images"):
 ref_images = load_ref_images()  # 直接加载图片储存在全局变量，避免反复加载
 
 if __name__ == "__main__":
-    print("请用鼠标拖拽选择主区域...")
+    logger.info("请用鼠标拖拽选择主区域...")
     main_roi = select_roi()
     results = process_regions(main_roi)
     # 输出结果
-    print("\n识别结果：")
+    logger.info("\n识别结果：")
     for res in results:
         if "error" in res:
-            print(f"区域{res['region_id']}: 错误 - {res['error']}")
+            logger.error(f"区域{res['region_id']}: 错误 - {res['error']}")
         else:
             if res["matched_id"] != 0:
-                print(
+                logger.info(
                     f"区域{res['region_id']} => 匹配ID:{res['matched_id']} 数字:{res['number']} 置信度:{res['confidence']}"
                 )

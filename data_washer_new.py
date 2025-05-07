@@ -1,13 +1,13 @@
-import logging
-from pathlib import Path
-import cv2
-import numpy as np
-import time
 import csv
 import os
-import sys
-import recognize
+from pathlib import Path
+
+import cv2
+import numpy as np
 import tqdm
+from loguru import logger
+
+import recognize
 
 MONSTER_NUM=56
 black_list_rows = []
@@ -57,7 +57,7 @@ def remove_duplicate_subsequences(arr, threshold=3):
         raise ValueError("输入必须是二维数组")
     
     n = arr.shape[0]
-    print(arr[9])
+    logger.info(arr[9])
     # 哈希化每行以便快速比较
     dtype = np.dtype((np.void, arr.dtype.itemsize * arr.shape[1]))
     hashed_arr = np.ascontiguousarray(arr).view(dtype).flatten()
@@ -85,7 +85,7 @@ def remove_duplicate_subsequences(arr, threshold=3):
         # 滚动更新
         prev_row = curr_row
         if i*100/n >= targ:
-            print("检查重复数据，处理进度: {:.1f}%: ".format(i*100/n))
+            logger.info("检查重复数据，处理进度: {:.1f}%: ".format(i*100/n))
             targ += 10
     
     # 确定有效列并生成删除索引
@@ -138,9 +138,9 @@ def read_and_remove_zeros(filename,MONSTER_NUM=56):
                 datafull.append([0]*lines_num)
                 #把这一行转化为全0行暂时录入
             row_id += 1
-    print('原数据总长度：',len(datafull))
-    print('数据长度过短的行：',merge(short))
-    print('含有不合法数据的行：',merge(kong))
+    logger.info('原数据总长度：',len(datafull))
+    logger.info('数据长度过短的行：',merge(short))
+    logger.info('含有不合法数据的行：',merge(kong))
 
     np_array = np.array(data)
     # 去除全零行
@@ -153,8 +153,8 @@ def read_and_remove_zeros(filename,MONSTER_NUM=56):
     data_new = [datafull[j] for j in range(len(datafull)) if j not in all_zeros]
 
     all_zeros_idx = [i for i in all_zeros if i not in kong+short]
-    print('一侧数据全为0的行：',merge(all_zeros_idx))
-    print('筛选后数据总长度：',len(data_new))
+    logger.info('一侧数据全为0的行：',merge(all_zeros_idx))
+    logger.info('筛选后数据总长度：',len(data_new))
     return data_new,all_zeros,len(datafull)
 
 def do_duplicate(listdata):
@@ -163,7 +163,7 @@ def do_duplicate(listdata):
     num_data = [list(map(int,map(float, i[:MONSTER_NUM*2]))) for i in listdata]
     np_num_data = np.array(num_data)
     _,remove_list = remove_duplicate_subsequences(np_num_data, threshold=3)
-    #print(remove_list)
+    #logger.info(remove_list)
     result = [listdata[j] for j in range(len(listdata)) if j not in remove_list]
     return result,remove_list
 
@@ -180,7 +180,7 @@ def view_monster_counts(listdata):
     wrong_counts = []
     num_left = [list(map(int,map(float, i[:MONSTER_NUM]))) for i in listdata]
     num_right = [list(map(int,map(float, i[MONSTER_NUM:MONSTER_NUM*2]))) for i in listdata]
-    print(len(num_left[0]),len(num_right[0]))
+    logger.info(len(num_left[0]),len(num_right[0]))
     black_listed = False
     MONSTER_MIN = 0
     MONSTER_MAX = 100
@@ -200,42 +200,42 @@ def view_monster_counts(listdata):
     for i1,i2 in zip(num_left,num_right):
         for x1 in i1:
             if x1 < MONSTER_MIN:
-                print(f'{ind}行左侧发现小于0的数据!')
+                logger.warning(f'{ind}行左侧发现小于0的数据!')
                 if ind not in wrong_counts:
                     wrong_counts.append(ind)
             if x1 > MONSTER_MAX:
-                print(f'{ind}行左侧发现大于100的数据!')
+                logger.warning(f'{ind}行左侧发现大于100的数据!')
                 if ind not in wrong_counts:
                     wrong_counts.append(ind)
         for x2 in i2:
             if x2 < MONSTER_MIN:
-                print(f'{ind}行右侧发现小于0的数据!')
+                logger.warning(f'{ind}行右侧发现小于0的数据!')
                 if ind not in wrong_counts:
                     wrong_counts.append(ind)
             if x2 > MONSTER_MAX:
-                print(f'{ind}行右侧发现大于100的数据!')
+                logger.warning(f'{ind}行右侧发现大于100的数据!')
                 if ind not in wrong_counts:
                     wrong_counts.append(ind)
         for j in MONSTER_LIMIT:
             if i1[j] not in MONSTER_LIMIT[j][0]:
-                print(f'{ind}行左侧发现{MONSTER_LIMIT[j][1]}，数量：{i1[j]}')
+                logger.warning(f'{ind}行左侧发现{MONSTER_LIMIT[j][1]}，数量：{i1[j]}')
                 if ind not in wrong_counts:
                     wrong_counts.append(ind)
                 if MONSTER_LIMIT[j][2] and not black_listed:
                     black_listed = True
-                    print(f'确认为30人数据，文档加入黑名单。')
+                    logger.info(f'确认为30人数据，文档加入黑名单。')
             if i2[j] not in MONSTER_LIMIT[j][0]:
-                print(f'{ind}行右侧发现{MONSTER_LIMIT[j][1]}，数量：{i2[j]}')
+                logger.warning(f'{ind}行右侧发现{MONSTER_LIMIT[j][1]}，数量：{i2[j]}')
                 if ind not in wrong_counts:
                     wrong_counts.append(ind)
                 if MONSTER_LIMIT[j][2] and not black_listed:
                     black_listed = True
-                    print(f'确认为30人数据，文档加入黑名单。')
+                    logger.info(f'确认为30人数据，文档加入黑名单。')
         ind += 1
     processed_data = [listdata[j] for j in range(len(listdata)) if j not in wrong_counts]
     mwdata = is_list_true_np(processed_data)
     processed_data2 = [processed_data[j] for j in range(len(processed_data)) if j not in mwdata]
-    print(f'怪物信息不符合权重分配的数据行：{mwdata}')
+    logger.warning(f'怪物信息不符合权重分配的数据行：{mwdata}')
     return black_listed,wrong_counts,mwdata,processed_data2
 
 def del_duplicate_by_time(listdata,delete_no_time = True):
@@ -247,7 +247,7 @@ def del_duplicate_by_time(listdata,delete_no_time = True):
         if len(i) < MONSTER_NUM*2+2 or i[-1] == 'N/A':
             no_time.append(ind)
         ind += 1
-    print(merge(no_time),'行：未发现时间戳！')
+    logger.info(merge(no_time),'行：未发现时间戳！')
     data_with_time = [listdata[j] for j in range(len(listdata)) if j not in no_time]
     ind = 0
     for i in data_with_time:
@@ -255,7 +255,7 @@ def del_duplicate_by_time(listdata,delete_no_time = True):
             timedata.append(i[-1])
         else:
             wrong_time.append(ind)
-            print(f'{timedata.index(i[-1])}行与{ind}行发现同名截图，文件名：{i[-1]}')
+            logger.info(f'{timedata.index(i[-1])}行与{ind}行发现同名截图，文件名：{i[-1]}')
         ind += 1
     if not delete_no_time:
         #先找到wrongtime元素的原始位置，再从原列表删除
@@ -282,7 +282,7 @@ def savecsv(listdata,outputfile):
     # 写入CSV文件
     with open(outputfile, 'w', newline='') as f:
         csv.writer(f).writerows(processed)
-    print(f'已保存至{outputfile}')
+    logger.info(f'已保存至{outputfile}')
     
 
 def find_csv_files(root_dir):
@@ -318,12 +318,12 @@ def find_where_from(easydata,floder_path):
         if i[0] > 0:
             datalist[i[0]-1+MONSTER_NUM] = i[1]
     datalist.extend(easydata[2])
-    print(datalist)
+    logger.info(datalist)
     csvlist = find_csv_files(floder_path)
     for c in csvlist:
-        print(c)
+        logger.info(c)
     for c in csvlist:
-        print(f'正在检查：{c}…………………………')
+        logger.info(f'正在检查：{c}…………………………')
         lines_num = MONSTER_NUM*2
         datafull = []
         row_id = 0
@@ -335,12 +335,12 @@ def find_where_from(easydata,floder_path):
                     vals = [row[lines_num]]
                     if datalist == numbers+vals:
                         from_list.append([c,row_id+1])
-                        print(f'数据来源于：{c}，第{row_id+1}行！')
+                        logger.info(f'数据来源于：{c}，第{row_id+1}行！')
                 row_id += 1
     str_from = ''
     if from_list != []:
         str_from = "\n".join([i[0] + '第：' + str(i[1]) + '行' for i in from_list])
-    print(f'可能的数据来源：{str_from}')
+    logger.info(f'可能的数据来源：{str_from}')
 
 def is_distance_not_over_60(a,b,c,d):
     #a, b = interval1
@@ -444,25 +444,25 @@ def is_list_true(onelist):
     left = onelist[:MONSTER_NUM]
     right = onelist[MONSTER_NUM:MONSTER_NUM*2]
     #result = onelist[MONSTER_NUM*2]
-    #print(left,right,result)
+    #logger.info(left,right,result)
     mincostL = sum([(left[i]-1)*cost_list[i][0]+(left[i]-1)*(left[i]-2)*cost_list[i][1]/2+0.01 for i in range(len(left)) if (cost_list[i] != [-1,-1]) and (left[i] > 0)])
     maxcostL = sum([(left[i]+1)*cost_list[i][0]+left[i]*(left[i]+1)*cost_list[i][1]/2-0.01 for i in range(len(left)) if (cost_list[i] != [-1,-1]) and (left[i] > 0)])
     mincostR = sum([(right[i]-1)*cost_list[i][0]+(right[i]-1)*(right[i]-2)*cost_list[i][1]/2+0.01 for i in range(len(right)) if (cost_list[i] != [-1,-1]) and (right[i] > 0)])
     maxcostR = sum([(right[i]+1)*cost_list[i][0]+right[i]*(right[i]+1)*cost_list[i][1]/2-0.01 for i in range(len(right)) if (cost_list[i] != [-1,-1]) and (right[i] > 0)])
-    print(mincostL,maxcostL,mincostR,maxcostR)
+    logger.info((mincostL,maxcostL,mincostR,maxcostR))
     for i in range(len(round_cost_list)):
         if max(mincostL, round_cost_list[i][0]) <= min(maxcostL, round_cost_list[i][1]) and max(mincostR, round_cost_list[i][0]) <= min(maxcostR, round_cost_list[i][1]):
             roundlist.append(i)     
     if roundlist != []:
         return True
     else:
-        print(f'{onelist}is not true！！！')
+        logger.info(f'{onelist}is not true！！！')
         return False
     #return is_distance_not_over_60(mincostL,maxcostL,mincostR,maxcostR)
 
 def recognize_review(data):
-    print("正在进行识别数据检查")
-    print("data行数：",len(data))
+    logger.info("正在进行识别数据检查")
+    logger.info("data行数：",len(data))
     ref_row = [0] * (recognize.MONSTER_COUNT * 2)
     need_delete = [False] * len(data)
     for idx, row in tqdm.tqdm(enumerate(data), total=len(data), desc="Processing rows"):
@@ -471,7 +471,7 @@ def recognize_review(data):
             img_name = row[recognize.MONSTER_COUNT * 2 + 1]
             img_path = "wash/images" / Path(img_name)
             if not img_path.exists():
-                print(f"Image {img_name} not found.")
+                logger.error(f"图片 {img_name} 不存在")
                 continue
             img = cv2.imread(img_path)
             main_roi = ((0, 0), (img.shape[1], img.shape[0]))
@@ -479,7 +479,7 @@ def recognize_review(data):
             # 处理结果
             for res in results:
                 if "error" in res:
-                    print(f"识别失败 idx: {idx}, img: {img_name}, error: {res['error']}", file=sys.stderr)
+                    logger.error(f"识别失败 idx: {idx}, img: {img_name}, error: {res['error']}", file=sys.stderr)
                     break
                 if res["matched_id"]:
                     if res["region_id"] < 3:
@@ -490,26 +490,26 @@ def recognize_review(data):
                 # 检查数据行是否与参考行匹配
                 data_row = row[0 : recognize.MONSTER_COUNT * 2]
                 if data_row != ref_row:
-                    print(f"Data line {idx} don't match, img: {img_name}", file=sys.stderr)
-                    print(f"ref_row : {ref_row}", file=sys.stderr)
-                    print(f"data_row: {data_row}", file=sys.stderr)
+                    logger.warning(f"数据行 {idx} 未匹配， 图片名称: {img_name}", file=sys.stderr)
+                    logger.info(f"ref_row : {ref_row}", file=sys.stderr)
+                    logger.info(f"data_row: {data_row}", file=sys.stderr)
                     need_delete[idx] = True
                 else:
                     need_delete[idx] = False
         except Exception as e:
-            logging.exception(f"Error processing line {idx}", e)
+            logger.exception(f"处理数据行 {idx} 时出错了：{e}")
     newdata = [row for idx, row in enumerate(data) if not need_delete[idx]]
     deleted = [idx for idx, del_flag in enumerate(need_delete) if del_flag]
     return newdata, deleted
 
 #newdata,deleted,ori_len = read_and_remove_zeros('0502.csv',MONSTER_NUM=56)
 #_,inc = remove_duplicate_subsequences()
-#print('数据例：',newdata[:3])
+#logger.info('数据例：',newdata[:3])
 #result,deleted2 = do_duplicate(newdata)
-#print(deleted,deleted2)
+#logger.info(deleted,deleted2)
 #dt = ori_pos(ori_len,deleted,deleted2)
-#print(dt)
-#print('筛选后数据总长度：',len(result))
+#logger.info(dt)
+#logger.info('筛选后数据总长度：',len(result))
 #view_monster_counts(newdata)
 #del_duplicate_by_time(newdata)
 
@@ -556,9 +556,9 @@ def process_full(filename,do_remove_duplicate_subsequences = False,delete_no_tim
 def test1():
     black_listed,newdata,dl,wrong_type_list = process_full('0502processed.csv')
     dllist = [i + 1 for i in dl]
-    print(f'删除了{dllist}行的数据')
+    logger.info(f'删除了{dllist}行的数据')
     for i in wrong_type_list:
-        print(i)
+        logger.info(i)
     savecsv(newdata,'0502processed2.csv')
 
 def process_floder(flodername,savefilename,lastsavefilename,do_remove_duplicate_subsequences = True,delete_no_time = True,open_black_list = True):
@@ -574,28 +574,28 @@ def process_floder(flodername,savefilename,lastsavefilename,do_remove_duplicate_
     full_data_list = []
     csvlist = find_csv_files(flodername)
     for csv in csvlist:
-        print(csv)
+        logger.info(csv)
     for csv in csvlist:
-        print(f'正在处理：{csv}…………………………')
+        logger.info(f'正在处理：{csv}…………………………')
         black_listed,newdata,dl,wrong_type_list = process_full(csv,do_remove_duplicate_subsequences,delete_no_time,open_black_list)
         dllist = [i + 1 for i in dl]
-        print(f'删除了{merge(dllist)}行的数据')
+        logger.info(f'删除了{merge(dllist)}行的数据')
         for i in wrong_type_list:
-            print(i)
+            logger.info(i)
         if not black_listed:
             #未进黑名单则合并至全部数据
             full_data_list += newdata
         else:
-            print(f'该数据为30人局数据，自动进入黑名单，不计入总数据！')
+            logger.info(f'该数据为30人局数据，自动进入黑名单，不计入总数据！')
             if len(newdata) < 5000:#不是整合数据
                 black_list_rows += newdata
     savecsv(full_data_list,savefilename)
     black_listed,newdata,dl,wrong_type_list = process_full(savefilename,do_remove_duplicate_subsequences,delete_no_time,open_black_list)
     #保存后再总处理去重
     dllist = [i + 1 for i in dl]
-    print(f'删除了{merge(dllist)}行的数据')
+    logger.info(f'删除了{merge(dllist)}行的数据')
     for i in wrong_type_list:
-        print(i)
+        logger.info(i)
     savecsv(newdata,lastsavefilename)
     
 def process_black_list(full_data):
@@ -610,7 +610,7 @@ def process_black_list(full_data):
         else:
             ok_data.append(i)
         idx += 1
-    print(f'黑名单内数据：{merge(delete_rows)}')
+    logger.info(f'黑名单内数据：{merge(delete_rows)}')
     return ok_data,delete_rows
             
     
@@ -625,9 +625,9 @@ def process_file(filename,savefilename,do_remove_duplicate_subsequences = True,d
     black_listed,newdata,dl,wrong_type_list = process_full(filename,do_remove_duplicate_subsequences,delete_no_time,open_black_list)
     #保存后再总处理去重
     dllist = [i + 1 for i in dl]
-    print(f'删除了{merge(dllist)}行的数据')
+    logger.info(f'删除了{merge(dllist)}行的数据')
     for i in wrong_type_list:
-        print(i)
+        logger.info(i)
     savecsv(newdata,savefilename)
         
 

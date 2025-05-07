@@ -3,7 +3,7 @@ from PIL import Image, ImageTk
 import csv
 import os
 from recognize import MONSTER_COUNT
-
+from loguru import logger
 
 class ArknightsApp:
     def __init__(self, root):
@@ -70,7 +70,7 @@ class ArknightsApp:
                 image = Image.open(image_path).resize((50, 50))
                 images[str(i)] = ImageTk.PhotoImage(image)
             else:
-                print(f"Image {i}.png not found.")
+                logger.error(f"未找到图片 {i}.png")
                 images[str(i)] = None  # 占位符
         return images
 
@@ -93,7 +93,7 @@ class ArknightsApp:
                     tk.Label(self.top_frame, image=self.images[str(i)]).grid(row=0, column=i - 1)
                     tk.Label(self.top_frame, text=str(int(value))).grid(row=1, column=i - 1)
             except ValueError:
-                print(f"Skipping invalid value: {row[i - 1]} at column {i - 1}")
+                logger.warning(f"跳过非法值: {row[i - 1]}，位于列 {i - 1}")
 
         # 插入空白间隔
         gap_column = MONSTER_COUNT-1  # 间隔列索引
@@ -108,7 +108,7 @@ class ArknightsApp:
                     tk.Label(self.top_frame, image=self.images[str(i - MONSTER_COUNT)]).grid(row=0, column=i - 1)
                     tk.Label(self.top_frame, text=str(int(value))).grid(row=1, column=i - 1)
             except ValueError:
-                print(f"Skipping invalid value: {row[i - 1]} at column {i - 1}")
+                logger.warning(f"跳过非法值: {row[i - 1]}，位于行 {i - 1}")
 
         # 显示 L/R
         for widget in self.bottom_frame.winfo_children():
@@ -134,9 +134,9 @@ class ArknightsApp:
                 self.current_row_index = row_index
                 self.show_row(self.current_row_index)
             else:
-                print("行号超出范围")
+                logger.error("行号超出范围")
         except ValueError:
-            print("请输入有效的行号")
+            logger.error("请输入有效的行号")
 
     def show_prev_row(self):
         """显示上一行数据"""
@@ -164,9 +164,9 @@ class ArknightsApp:
             # 删除图片文件（如果存在）
             if os.path.exists(image_path):
                 os.remove(image_path)
-                print(f"已删除图片文件: {image_path}")
+                logger.info(f"已删除图片文件: {image_path}")
             else:
-                print(f"图片文件不存在: {image_path}")
+                logger.warning(f"图片文件不存在: {image_path}")
 
             del self.data[self.current_row_index]  # 从内存中删除当前行
             # 将修改后的数据写回 CSV 文件

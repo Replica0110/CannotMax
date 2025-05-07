@@ -2,7 +2,7 @@ from pathlib import Path
 import zipfile
 import re
 from datetime import datetime
-
+from loguru import logger
 
 def create_zip_package(output_zip_path):
     # 定义文件和文件夹路径
@@ -16,7 +16,7 @@ def create_zip_package(output_zip_path):
         if folder.is_dir() and date_pattern.match(folder.name)
     ]
     if not time_folders:
-        print("未找到输出目录！")
+        logger.warning("未找到输出目录！")
         return
 
     # 创建压缩包
@@ -29,7 +29,7 @@ def create_zip_package(output_zip_path):
                     arcname = file_path.relative_to(data_folder)
                     zipf.write(file_path, arcname=str(arcname))
 
-    print(f"压缩包已创建：{output_zip_path}")
+    logger.info(f"压缩包已创建：{output_zip_path}")
 
 
 # 使用当前时间生成输出文件名
