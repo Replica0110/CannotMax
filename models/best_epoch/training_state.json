@@ -1,0 +1,27 @@
+{
+    "epoch": 74,
+    "model_state_dict_path": "model.pth",
+    "optimizer_state_dict_path": "optimizer.pth",
+    "scheduler_state_dict_path": "scheduler.pth",
+    "train_loss": 0.5475944116197783,
+    "val_loss": 0.5536025166511536,
+    "train_acc": 89.47822337214316,
+    "val_acc": 88.29556038497361,
+    "config": {
+        "data_file": "arknights.csv",
+        "batch_size": 2048,
+        "test_size": 0.1,
+        "embed_dim": 256,
+        "n_layers": 4,
+        "num_heads": 8,
+        "lr": 0.0005,
+        "epochs": 100,
+        "seed": 42,
+        "save_dir": "models",
+        "max_feature_value": 100,
+        "num_workers": 0,
+        "num_recent_checkpoints_to_keep": 3,
+        "best_metric": "val_acc"
+    },
+    "timestamp": 1746614350.3595595
+}

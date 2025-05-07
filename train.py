@@ -10,42 +10,104 @@ import time
 from torch.cuda.amp import GradScaler
 from loguru import logger
 
+from checkpoint import save_checkpoint, load_checkpoint, manage_recent_checkpoints
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
+import os
+import numpy as np
+import pandas as pd # 仍然需要pandas进行后续操作和类型兼容
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from sklearn.model_selection import train_test_split
+from torch.utils.data import Dataset, DataLoader
+import time
+from torch.cuda.amp import GradScaler
+from loguru import logger
+
+# 导入 pyarrow.csv
+import pyarrow.csv as pv
+import pyarrow as pa
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 def preprocess_data(csv_file):
-    """预处理CSV文件，将异常值修正为合理范围"""
-    logger.info(f"预处理数据文件: {csv_file}")
+    """预处理CSV文件，使用 PyArrow 读取，将异常值修正为合理范围"""
+    logger.info(f"使用 PyArrow 预处理数据文件: {csv_file}")
 
-    # 读取CSV文件
-    data = pd.read_csv(csv_file, header=None, skiprows=1)
+    # PyArrow 读取 CSV
+    read_options = pv.ReadOptions()
+    read_options.skip_rows = 1  # 跳过第一行（原始文件的表头）
+    read_options.autogenerate_column_names = True
+
+    parse_options = pv.ParseOptions()
+    convert_options = pv.ConvertOptions()
+    try:
+        # 使用 pyarrow.csv.read_csv 读取
+        table = pv.read_csv(csv_file,
+                            read_options=read_options,
+                            parse_options=parse_options,
+                            convert_options=convert_options)
+
+        data = table.to_pandas()
+
+    except pa.ArrowInvalid as e:
+        logger.error(f"PyArrow 读取CSV时出错: {e}")
+        logger.warning("尝试回退到 Pandas 读取...")
+        try:
+            # 回退到Pandas读取，并尝试处理坏行
+            data = pd.read_csv(csv_file, header=None, skiprows=1, on_bad_lines='warn')
+            if data.empty and os.path.getsize(csv_file) > 0: # 检查文件是否有内容
+                 logger.error("DataFrame 为空，但文件非空。请检查CSV文件。")
+                 return 0
+        except Exception as pd_e:
+            logger.error(f"Pandas 读取失败: {pd_e}")
+            return 0
+
+    if data.empty:
+        logger.error("读取数据后DataFrame为空，请检查CSV文件或读取参数。")
+        return 0
+
+
     logger.info(f"原始数据形状: {data.shape}")
 
-    # 检查特征范围
-    features = data.iloc[:, :-1]
-    labels = data.iloc[:, -1]
+    try:
+        features = data.iloc[:, :-1]
+        labels = data.iloc[:, -1]
+    except IndexError as e:
+        logger.error(f"从读取的数据中提取特征和标签时出错: {e}")
+        logger.error("可能是因为CSV列数不符合预期，或者文件未能正确读取。")
+        return 0 # 指示预处理失败
+
 
     # 统计极端值
-    extreme_values = (np.abs(features) > 20).sum().sum()
-    if extreme_values > 0:
-        logger.warning(f"发现 {extreme_values} 个绝对值大于20的特征值")
+    try:
+        numeric_features = features.apply(pd.to_numeric, errors='coerce')
+        extreme_values = (np.abs(numeric_features) > 20).sum().sum()
+        if extreme_values > 0:
+            logger.warning(f"发现 {extreme_values} 个绝对值大于20的特征值")
+
+        feature_min = numeric_features.min().min()
+        feature_max = numeric_features.max().max()
+        feature_mean = numeric_features.mean().mean()
+        feature_std = numeric_features.std().mean()
+    except Exception as e:
+        logger.error(f"统计特征值时发生错误: {e}")
+        logger.warning("这可能表明特征列中存在非数值数据，或数据为空。")
+        feature_min, feature_max, feature_mean, feature_std = np.nan, np.nan, np.nan, np.nan
+
 
     # 检查标签
     invalid_labels = labels.apply(lambda x: x not in ["L", "R"]).sum()
     if invalid_labels > 0:
         logger.warning(f"发现 {invalid_labels} 个无效标签")
 
-    # 输出特征的范围信息
-    feature_min = features.min().min()
-    feature_max = features.max().max()
-    feature_mean = features.mean().mean()
-    feature_std = features.std().mean()
 
     logger.info(f"特征值范围: [{feature_min}, {feature_max}]")
     logger.info(f"特征值平均值: {feature_mean:.4f}, 标准差: {feature_std:.4f}")
-
-    # 如果需要，可以在这里对数据进行更多的预处理
-    # 例如：将极端值截断到合理范围
 
     return data.shape[1]
 
@@ -406,21 +468,24 @@ def main():
     # 配置参数
     config = {
         "data_file": "arknights.csv",
-        "batch_size": 2048,  # 128/512/2048
+        "batch_size": 2048,
         "test_size": 0.1,
-        "embed_dim": 256,  # 128可能不够，512会过拟合
-        "n_layers": 4,  # 3也可以
+        "embed_dim": 256,
+        "n_layers": 4,
         "num_heads": 8,
-        "lr": 5e-4,  # 3e-4
-        "epochs": 100,  # 一般30也够了
-        "seed": 42,  # 随机数种子
-        "save_dir": "models",  # 存到哪里
-        "max_feature_value": 100,  # 限制特征最大值，防止极端值造成不稳定
-        "num_workers": 0 if torch.cuda.is_available() else 0,  # 根据CUDA可用性设置num_workers
+        "lr": 5e-4,
+        "epochs": 100,
+        "seed": 42,
+        "save_dir": "models",
+        "max_feature_value": 100,
+        "num_workers": 0 if torch.cuda.is_available() else 0,
+        "num_recent_checkpoints_to_keep": 3,
+        "best_metric": "val_acc",  # 'val_acc' 或 'val_loss'
     }
 
     # 创建保存目录
     os.makedirs(config["save_dir"], exist_ok=True)
+    best_epoch_dir = os.path.join(config["save_dir"], "best_epoch")
 
     # 设置随机种子
     torch.manual_seed(config["seed"])
@@ -428,7 +493,7 @@ def main():
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(config["seed"])
 
-    # 设置设备
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"使用设备: {device}")
 
     # 初始化 GradScaler 用于混合精度训练
@@ -440,87 +505,85 @@ def main():
             scaler = GradScaler() # 如果是老版本
         logger.info("CUDA可用，已启用混合精度训练的GradScaler。")
 
-    # 检查CUDA可用性
     if torch.cuda.is_available():
-        logger.info(f"CUDA设备数量: {torch.cuda.device_count()}")
-        logger.info(f"当前CUDA设备: {torch.cuda.current_device()}")
-        logger.info(f"CUDA设备名称: {torch.cuda.get_device_name(0)}")
-
-        # 设置确定性计算以增加稳定性
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = True
     else:
-        logger.warning("警告：未检测到GPU，将在CPU上运行训练，这可能会很慢!")
+        logger.warning("警告：未检测到GPU，将在CPU上运行训练!")
 
-    # 先预处理数据，检查是否有异常值
-    num_data = preprocess_data(config["data_file"])
+    # --- 数据加载 ---
+    num_total_cols = preprocess_data(config["data_file"])
+    if num_total_cols == 0:
+        logger.error("数据预处理失败或未返回有效列数，程序终止。")
+        return
 
-    # 加载数据集
-    dataset = ArknightsDataset(
-        config["data_file"], max_value=config["max_feature_value"]  # 使用最大值限制
-    )
+    num_units_per_side = (num_total_cols - 1) // 2
+    dataset = ArknightsDataset(config["data_file"], max_value=config["max_feature_value"])
+    train_dataset, val_dataset = stratified_random_split(dataset, test_size=config["test_size"], seed=config["seed"])
+    logger.info(f"训练集大小: {len(train_dataset)}, 验证集大小: {len(val_dataset)}")
 
-    # 数据集分割
-    val_size = int(0.1 * len(dataset))  # 10% 验证集
-    train_size = len(dataset) - val_size
+    train_loader = DataLoader(train_dataset, batch_size=config["batch_size"], shuffle=True, num_workers=config["num_workers"])
+    val_loader = DataLoader(val_dataset, batch_size=config["batch_size"], num_workers=config["num_workers"])
 
-    # 划分
-    train_dataset, val_dataset = stratified_random_split(
-        dataset, test_size=config["test_size"], seed=config["seed"]
-    )
-
-    logger.info(f"训练集大小: {train_size}, 验证集大小: {val_size}")
-
-    # 数据加载器
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=config["batch_size"],
-        shuffle=True,
-        num_workers=config["num_workers"]
-    )
-    val_loader = DataLoader(
-        val_dataset,
-        batch_size=config["batch_size"],
-        num_workers=config["num_workers"]
-    )
-
-    # 初始化模型
+    # --- 初始化模型、优化器、损失函数、调度器 ---
     model = UnitAwareTransformer(
-        num_units=(num_data - 1) // 2,
+        num_units=num_units_per_side,
         embed_dim=config["embed_dim"],
         num_heads=config["num_heads"],
         num_layers=config["n_layers"],
     ).to(device)
+    logger.info(f"模型参数数量: {sum(p.numel() for p in model.parameters() if p.requires_grad)}")
 
-    logger.info(
-        f"模型参数数量: {sum(p.numel() for p in model.parameters() if p.requires_grad)}"
-    )
-
-    # 损失函数和优化器
     criterion = nn.BCEWithLogitsLoss()
     optimizer = optim.AdamW(model.parameters(), lr=config["lr"], weight_decay=1e-4)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=config["epochs"])
 
-    # 训练历史记录
-    train_losses = []
-    val_losses = []
-    train_accs = []
-    val_accs = []
+    # --- 默认尝试恢复 ---
+    start_epoch = 0
+    best_val_metric_value = float('-inf') if config["best_metric"] == "val_acc" else float('inf')
 
-    # 训练设置
-    best_acc = 0
-    best_loss = float("inf")
+    checkpoint_to_load = None
+    if os.path.exists(best_epoch_dir):
+        checkpoint_to_load = best_epoch_dir
+    else:
+        # 查找最新的 epoch_X 文件夹
+        epoch_dirs = []
+        for item in os.listdir(config["save_dir"]):
+            if item.startswith("epoch_") and os.path.isdir(os.path.join(config["save_dir"], item)):
+                try:
+                    num = int(item.split("_")[1])
+                    epoch_dirs.append((num, os.path.join(config["save_dir"], item)))
+                except ValueError:
+                    continue
+        if epoch_dirs:
+            epoch_dirs.sort(key=lambda x: x[0], reverse=True)
+            checkpoint_to_load = epoch_dirs[0][1]
 
-    # 训练循环
-    for epoch in range(config["epochs"]):
-        logger.info(f"\nEpoch {epoch + 1}/{config['epochs']}")
-
-        # 训练
-        train_loss, train_acc = train_one_epoch(
-            model, train_loader, criterion, optimizer, scaler
+    if checkpoint_to_load and os.path.isdir(checkpoint_to_load):
+        loaded_epoch, loaded_config, _, loaded_val_loss, _, loaded_val_acc = load_checkpoint(
+            checkpoint_to_load, model, optimizer, scheduler, device
         )
+        if loaded_epoch > 0:
+            start_epoch = loaded_epoch
+            logger.info(f"成功从 {checkpoint_to_load} 恢复，第{start_epoch}轮")
+            if config["best_metric"] == "val_acc":
+                best_val_metric_value = loaded_val_acc
+            else:
+                best_val_metric_value = loaded_val_loss
+        else:
+            logger.info("检查点加载失败，将从头开始训练。")
+    else:
+        logger.info("未找到有效检查点，从头开始训练。")
 
-        # 验证
+    # --- 训练循环 ---
+    train_losses, val_losses, train_accs, val_accs = [], [], [], []
+    total_training_start_time = time.time()
+
+    for epoch in range(start_epoch, config["epochs"]):
+        epoch_start_time = time.time()
+        logger.info(f"Epoch {epoch + 1}/{config['epochs']}")
+
+        train_loss, train_acc = train_one_epoch(model, train_loader, criterion, optimizer, scaler)
         val_loss, val_acc = evaluate(model, val_loader, criterion)
 
         # 更新学习率
@@ -532,82 +595,53 @@ def main():
         train_accs.append(train_acc)
         val_accs.append(val_acc)
 
-        # 保存最佳模型（基于准确率）
-        if val_acc > best_acc:
-            best_acc = val_acc
-            torch.save(
-                model,
-                os.path.join(config["save_dir"], "best_model_acc.pth"),
-            )
+        # 保存模型
+        current_epoch_save_dir = os.path.join(config["save_dir"], f"epoch_{epoch + 1}")
 
-            logger.info("保存了新的最佳准确率模型!")
+        is_best = False
+        if config["best_metric"] == "val_acc":
+            if val_acc > best_val_metric_value:
+                best_val_metric_value = val_acc
+                is_best = True
         else:
-            logger.info(f"最佳准确率为: {best_acc:.2f}")
+            if val_loss < best_val_metric_value:
+                best_val_metric_value = val_loss
+                is_best = True
 
-        # 保存最佳模型（基于损失）
-        if val_loss < best_loss:
-            best_loss = val_loss
-            torch.save(
-                model,
-                os.path.join(config["save_dir"], "best_model_loss.pth"),
-            )
-            logger.info("保存了新的最佳损失模型!")
-        else:
-            logger.info(f"最佳损失为: {best_loss:.4f}")
+        save_checkpoint(
+            epoch=epoch,
+            model=model,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            train_loss=train_loss,
+            val_loss=val_loss,
+            train_acc=train_acc,
+            val_acc=val_acc,
+            config=config,
+            save_path=current_epoch_save_dir,
+            is_best=is_best,
+            best_save_path=best_epoch_dir if is_best else None
+        )
 
-        torch.save(model, os.path.join(config["save_dir"], "best_model_full.pth")) # 最后一次计算的模型
+        manage_recent_checkpoints(config["save_dir"], epoch + 1, config["num_recent_checkpoints_to_keep"])
 
-        # 保存最新模型
-        # torch.save({
-        #     'epoch': epoch,
-        #     'model_state_dict': model.state_dict(),
-        #     'optimizer_state_dict': optimizer.state_dict(),
-        #     'train_loss': train_loss,
-        #     'val_loss': val_loss,
-        #     'train_acc': train_acc,
-        #     'val_acc': val_acc,
-        #     'config': config
-        # }, os.path.join(config['save_dir'], 'latest_checkpoint.pth'))
+        # 日志
+        logger.info(f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.2f}% | Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.2f}%")
+        if is_best:
+            logger.info(f"新的最佳模型已保存! ({config['best_metric']}: {best_val_metric_value:.4f})")
 
-        # 打印训练信息
-        logger.info(f"Train Loss: {train_loss:.4f} | Acc: {train_acc:.2f}%")
-        logger.info(f"Val Loss: {val_loss:.4f} | Acc: {val_acc:.2f}%")
-        logger.info("-" * 40)
+        epoch_duration = time.time() - epoch_start_time
+        elapsed_time = time.time() - total_training_start_time
+        avg_epoch_time = elapsed_time / (epoch - start_epoch + 1)
+        estimated_total_time = avg_epoch_time * (config["epochs"] - start_epoch)
+        remaining_time = estimated_total_time - elapsed_time
 
-        # 计时
-        if epoch == 0:
-            start_time = time.time()
-            epoch_start_time = start_time
-        else:
-            current_time = time.time()
-            epoch_duration = current_time - epoch_start_time
-            elapsed_time = current_time - start_time
-            avg_epoch_time = elapsed_time / (epoch + 1)
-            estimated_total_time = avg_epoch_time * config["epochs"]
-            remaining_time = estimated_total_time - elapsed_time
+        logger.info(f"耗时：{elapsed_time / 60:.2f}分钟 | 剩余预估时间：{remaining_time / 60:.2f}分钟 | 单轮训练耗时：{epoch_duration:.2f}秒")
 
-            logger.info(f"Epoch Time: {epoch_duration:.2f}s")
-            logger.info(f"Elapsed Time: {elapsed_time / 60:.2f}min")
-            logger.info(f"Estimated Remaining Time: {remaining_time / 60:.2f}min")
-            logger.info(f"Estimated Total Time: {estimated_total_time / 60:.2f}min")
-            epoch_start_time = current_time  # Reset for next epoch
+        logger.info("-" * 50)
 
-        logger.info("-" * 40)
-
-        # 绘制并保存训练历史
-        # if (epoch + 1) % 5 == 0 or epoch == config['epochs'] - 1:
-        #     plot_training_history(
-        #         train_losses, val_losses, train_accs, val_accs,
-        #         save_path=os.path.join(config['save_dir'], 'training_history.png')
-        #     )
-
-    logger.info(f"训练完成! 最佳验证准确率: {best_acc:.2f}%, 最佳验证损失: {best_loss:.4f}")
-
-    # 保存最终训练历史
-    # plot_training_history(
-    #     train_losses, val_losses, train_accs, val_accs,
-    #     save_path=os.path.join(config['save_dir'], 'final_training_history.png')
-    # )
+    logger.info(f"训练完成! 最终最佳验证指标 ({config['best_metric']}): {best_val_metric_value:.4f}")
+    logger.info(f"最佳模型保存在: {best_epoch_dir}")
 
 
 if __name__ == "__main__":
