@@ -1,3 +1,4 @@
+import logging
 import os
 import subprocess
 import sys
@@ -5,6 +6,10 @@ import cv2
 import numpy as np
 from PIL import ImageGrab
 from rapidocr import RapidOCR
+import find_monster_zone
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 rapidocr_eng = RapidOCR()
 
@@ -179,7 +184,7 @@ def preprocess(img: cv2.typing.MatLike):
     return closed
 
 
-def find_best_match(target: cv2.typing.MatLike, ref_images: dict):
+def find_best_match(target: cv2.typing.MatLike, ref_images: dict[int, cv2.typing.MatLike]):
     """
     模板匹配找到最佳匹配的参考图像
     :param target: 目标图像
@@ -203,7 +208,7 @@ def find_best_match(target: cv2.typing.MatLike, ref_images: dict):
                 confidence = max_val
                 best_id = img_id
         except Exception as e:
-            print(f"处理参考图像 {img_id} 时出错: {str(e)}")
+            logger.exception(f"处理参考图像 {img_id} 时出错:", e)
             continue
 
     return best_id, confidence
@@ -212,10 +217,9 @@ def find_best_match(target: cv2.typing.MatLike, ref_images: dict):
 def do_num_ocr(img: cv2.typing.MatLike):
     result = rapidocr_eng(img, use_det=False, use_cls=False, use_rec=True)
     print(f"OCR: text: '{result.txts[0]}', score: {result.scores[0]}")
-    if result.txts[0] != "":
-        if result.scores[0] < 0.95:
-            raise ValueError("置信度过低！")
-    return "".join([c for c in result.txts[0] if c.isdigit()])
+    number = "".join([c for c in result.txts[0] if c.isdigit()])
+    confidence = result.scores[0]
+    return number, confidence
 
 
 def process_regions(main_roi, screenshot: cv2.typing.MatLike | None = None):
@@ -233,6 +237,20 @@ def process_regions(main_roi, screenshot: cv2.typing.MatLike | None = None):
     if screenshot is None:
         screenshot = np.array(ImageGrab.grab(bbox=(x1, y1, x2, y2)))
         screenshot = cv2.cvtColor(screenshot, cv2.COLOR_RGB2BGR)
+
+        # 手动框选的截图需先识别目标区域
+        cv2.imwrite(f"images/tmp/zone1.png", screenshot)
+        d_avatar, d_nums = find_monster_zone.cutFrame(screenshot)
+        height, width, _ = screenshot.shape
+        divisors = np.array([width, height, width, height])
+        avatar = np.round(d_avatar * divisors).astype("int")
+        x_min, x_max, y_min, y_max = width, 0, height, 0
+        for x1, y1, x2, y2 in avatar:
+            x_min = min(x_min, min(x1, x2))
+            x_max = max(x_max, max(x1, x2))
+            y_min = min(y_min, min(y1, y2))
+            y_max = max(y_max, max(y1, y2))
+        screenshot = screenshot[y_min:y_max, x_min:x_max]
     else:
         # 从当前screenshot中提取主区域
         screenshot = screenshot[y1:y2, x1:x2]
@@ -261,6 +279,8 @@ def process_regions(main_roi, screenshot: cv2.typing.MatLike | None = None):
             # 图像匹配
             matched_id, confidence = find_best_match(sub_roi, ref_images)
             print(f"target: {idx} confidence: {confidence}")
+            if matched_id != 0 and confidence < 0.5:
+                raise ValueError(f"模板匹配置信度过低: {confidence}")
         except Exception as e:
             print(f"区域 {idx} 匹配失败: {str(e)}")
             results.append({"region_id": idx, "error": str(e)})
@@ -281,7 +301,9 @@ def process_regions(main_roi, screenshot: cv2.typing.MatLike | None = None):
             processed = add_black_border(processed, border_size=3)  # 加上3像素黑框
 
             # OCR识别（保留优化后的处理逻辑）
-            number = do_num_ocr(processed)
+            number, ocr_confidence = do_num_ocr(processed)
+            if number != "" and ocr_confidence < 0.95:
+                raise ValueError(f"OCR置信度过低: {ocr_confidence}")
 
             if intelligent_workers_debug:  # 如果处于debug模式
                 # 存储模板图像用于debug
@@ -293,6 +315,11 @@ def process_regions(main_roi, screenshot: cv2.typing.MatLike | None = None):
                 # 保存有数字的图片到images/nums中的对应文件夹
                 if number:
                     save_number_image(number, processed, matched_id)
+
+            if number == "" and matched_id != 0:
+                raise ValueError("发现有怪物但无数量异常数据！")
+            if matched_id == 0 and number != "":
+                raise ValueError("发现无怪物但有数量异常数据！")
 
             results.append(
                 {
