@@ -1254,7 +1254,7 @@ class ArknightsApp:
         match_threshold = 0.6 # 事件匹配阈值，用于判断当前处于哪个页面
 
         if best_match_score < match_threshold:
-            logger.warning(f"最高匹配分数 {best_match_score:.3f} 低于阈值 {match_threshold}，认为未匹配到明确事件，跳过。")
+            logger.warning(f"事件匹配最高分数 {best_match_score:.3f} 低于阈值 {match_threshold}，未匹配到明确事件，执行跳过。")
             time.sleep(1)
             return
         if best_match_idx in [6, 61, 7, 71, 14]:
@@ -1277,7 +1277,8 @@ class ArknightsApp:
                 logger.info("状态: 主界面 -> 选择模式")
                 if self.game_mode.get() == "30人":
                     logger.info("模式: 30人 -> 点击")
-                    loadData.click(relative_points["right_all_join_start"])
+                    loadData.click(relative_points["left_all"]) # 点击30人模式按钮
+                    loadData.click(relative_points["right_all_join_start"]) # 点击开始按钮
                     time.sleep(3)
                 else:
                     logger.info("模式: 单人 -> 点击")
