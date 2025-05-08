@@ -1,4 +1,3 @@
-import logging
 import os
 import subprocess
 import sys
@@ -6,9 +5,9 @@ import cv2
 import numpy as np
 from PIL import ImageGrab
 from rapidocr import RapidOCR
-import find_monster_zone
-
 from loguru import logger
+
+import find_monster_zone
 
 rapidocr_eng = RapidOCR()
 
@@ -221,11 +220,13 @@ def do_num_ocr(img: cv2.typing.MatLike):
     return number, confidence
 
 
-def process_regions(main_roi, screenshot: cv2.typing.MatLike | None = None,matched_threshold = 0.5,ocr_threshold = 0.95):
+def process_regions(main_roi, screenshot: cv2.typing.MatLike | None = None,matched_threshold = 0.5,ocr_threshold = 0.55):
     """处理主区域中的所有区域（优化特征匹配）
     Args:
         main_roi: 主要感兴趣区域的坐标
         screenshot: 可选的预先捕获的截图
+        matched_threshold: 模板匹配阈值
+        ocr_threshold: 怪物图片ocr阈值
     Returns:
         区域处理结果的列表
     """
@@ -301,7 +302,7 @@ def process_regions(main_roi, screenshot: cv2.typing.MatLike | None = None,match
 
             # OCR识别（保留优化后的处理逻辑）
             number, ocr_confidence = do_num_ocr(processed)
-            if number != "" and ocr_confidence < 0.95:
+            if number != "" and ocr_confidence < ocr_threshold:
                 raise ValueError(f"OCR置信度过低: {ocr_confidence}")
 
             if intelligent_workers_debug:  # 如果处于debug模式
@@ -342,7 +343,10 @@ def load_ref_images(ref_dir="images"):
     for i in range(MONSTER_COUNT + 1):
         path = os.path.join(ref_dir, f"{i}.png")
         if os.path.exists(path):
-            img = cv2.imread(path, cv2.IMREAD_COLOR_BGR)
+            img = cv2.imread(path)
+            # 确保参考图像是RGB格式
+            if len(img.shape) == 2:
+                img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
             # 裁切模板匹配图像比例
             img = img[
                 int(img.shape[0] * 0.16) : int(img.shape[0] * 0.80),  # 高度取靠上部分

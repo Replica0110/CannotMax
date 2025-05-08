@@ -164,41 +164,28 @@ def create_frame(cx, cy, r, high_tol=False):
     nums_bias_inn=0.3
     nums_y=cy-0.5*r
     
-    if high_tol==False:
+    if not high_tol:
         t = 0.025 #容差因子
-        avatar = np.round(np.array([[cx      -r*t, cy      +r*t, cx+2*k*r+r*t, cy-2*k*r-r*t],
-                                    [cx+2*k*r-r*t, cy-2*k*r-r*t, cx+4*k*r+r*t, cy      +r*t],
-                                    [cx+4*k*r-r*t, cy      +r*t, cx+6*k*r+r*t, cy-2*k*r-r*t],
-                                    [cx+(6 *k+m)*r-r*t, cy      +r*t, cx+(8 *k+m)*r+r*t, cy-2*k*r-r*t],
-                                    [cx+(8 *k+m)*r-r*t, cy-2*k*r-r*t, cx+(10*k+m)*r+r*t, cy      +r*t],
-                                    [cx+(10*k+m)*r-r*t, cy      +r*t, cx+(12*k+m)*r+r*t, cy-2*k*r-r*t]])).astype("int")
-        nums = np.round(np.array([[cx+(nums_bias+0*k)*r-r*t, cy+r*t, cx+(nums_bias_inn+2*k)*r+r*t, nums_y],
-                                  [cx+(nums_bias+2*k)*r-r*t, nums_y, cx+(nums_bias_inn+4*k)*r+r*t, cy+r*t],
-                                  [cx+(nums_bias+4*k)*r-r*t, cy+r*t, cx+(nums_bias_inn+6*k)*r+r*t, nums_y],
-                                  [cx+(-nums_bias_inn+6 *k+m)*r-r*t, cy+r*t, cx+(-nums_bias+8 *k+m)*r+r*t, nums_y],
-                                  [cx+(-nums_bias_inn+8 *k+m)*r-r*t, nums_y, cx+(-nums_bias+10*k+m)*r+r*t, cy+r*t],
-                                  [cx+(-nums_bias_inn+10*k+m)*r-r*t, cy+r*t, cx+(-nums_bias+12*k+m)*r+r*t, nums_y]])).astype("int")
+    else:
+        t = 0.17
+    avatar = np.round(np.array([[cx-r*t, cy+r*t, cx+2*k*r+r*t, cy-2*k*r-r*t],
+                                [cx+2*k*r-r*t, cy-2*k*r-r*t, cx+4*k*r+r*t, cy      +r*t],
+                                [cx+4*k*r-r*t, cy      +r*t, cx+6*k*r+r*t, cy-2*k*r-r*t],
+                                [cx+(6 *k+m)*r-r*t, cy      +r*t, cx+(8 *k+m)*r+r*t, cy-2*k*r-r*t],
+                                [cx+(8 *k+m)*r-r*t, cy-2*k*r-r*t, cx+(10*k+m)*r+r*t, cy      +r*t],
+                                [cx+(10*k+m)*r-r*t, cy      +r*t, cx+(12*k+m)*r+r*t, cy-2*k*r-r*t]])).astype("int")
+    nums = np.round(np.array([[cx+(nums_bias+0*k)*r-r*t, cy+r*t, cx+(nums_bias_inn+2*k)*r+r*t, nums_y],
+                              [cx+(nums_bias+2*k)*r-r*t, nums_y, cx+(nums_bias_inn+4*k)*r+r*t, cy+r*t],
+                              [cx+(nums_bias+4*k)*r-r*t, cy+r*t, cx+(nums_bias_inn+6*k)*r+r*t, nums_y],
+                              [cx+(-nums_bias_inn+6 *k+m)*r-r*t, cy+r*t, cx+(-nums_bias+8 *k+m)*r+r*t, nums_y],
+                              [cx+(-nums_bias_inn+8 *k+m)*r-r*t, nums_y, cx+(-nums_bias+10*k+m)*r+r*t, cy+r*t],
+                              [cx+(-nums_bias_inn+10*k+m)*r-r*t, cy+r*t, cx+(-nums_bias+12*k+m)*r+r*t, nums_y]])).astype("int")
         
-        return avatar,nums
+    return avatar,nums
 
-    if high_tol==True:
-        t = 0.17 #容差因子
-        avatar = np.round(np.array([[cx      -r*t, cy      +r*t, cx+2*k*r+r*t, cy-2*k*r-r*t],
-                                    [cx+2*k*r-r*t, cy-2*k*r-r*t, cx+4*k*r+r*t, cy      +r*t],
-                                    [cx+4*k*r-r*t, cy      +r*t, cx+6*k*r+r*t, cy-2*k*r-r*t],
-                                    [cx+(6 *k+m)*r-r*t, cy      +r*t, cx+(8 *k+m)*r+r*t, cy-2*k*r-r*t],
-                                    [cx+(8 *k+m)*r-r*t, cy-2*k*r-r*t, cx+(10*k+m)*r+r*t, cy      +r*t],
-                                    [cx+(10*k+m)*r-r*t, cy      +r*t, cx+(12*k+m)*r+r*t, cy-2*k*r-r*t]])).astype("int")
-        nums = np.round(np.array([[cx+(nums_bias+0*k)*r-r*t, cy+r*t, cx+(nums_bias_inn+2*k)*r+r*t, nums_y],
-                                  [cx+(nums_bias+2*k)*r-r*t, nums_y, cx+(nums_bias_inn+4*k)*r+r*t, cy+r*t],
-                                  [cx+(nums_bias+4*k)*r-r*t, cy+r*t, cx+(nums_bias_inn+6*k)*r+r*t, nums_y],
-                                  [cx+(-nums_bias_inn+6 *k+m)*r-r*t, cy+r*t, cx+(-nums_bias+8 *k+m)*r+r*t, nums_y],
-                                  [cx+(-nums_bias_inn+8 *k+m)*r-r*t, nums_y, cx+(-nums_bias+10*k+m)*r+r*t, cy+r*t],
-                                  [cx+(-nums_bias_inn+10*k+m)*r-r*t, cy+r*t, cx+(-nums_bias+12*k+m)*r+r*t, nums_y]])).astype("int")
-        
-        return avatar,nums
 
-#框架切割（参数已封装）
+
+
 def cutFrame(image, high_tol=False):
     height, width, _ = image.shape
     crop_blur, crop_small, x_ratio, x_ratio_small = preprocess(image, blur=11)
